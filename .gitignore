@@ -1,0 +1,27 @@
+# secrets — NEVER commit (real API keys, service-role key, access token)
+.env
+.env.local
+
+# corpus is 16GB of third-party school/exam PDFs (school_prelim copyright) with
+# files >100MB that GitHub rejects — re-downloadable via the ingest scripts.
+corpus/
+
+# vault/index is a regenerable build cache (chunks.jsonl is 294MB, over GitHub's
+# 100MB limit) + ingest logs — rebuilt by the ingest pipeline. vault/notes and
+# vault/graph (the actual derived knowledge) ARE committed.
+vault/index/
+
+# build / cache / machine-specific junk (regenerable, not project content)
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+.deno/
+app/.expo/
+app/dist/
+
+# misc
+*.log
+.DS_Store
+_test_jwt.txt

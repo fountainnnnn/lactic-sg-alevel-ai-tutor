@@ -1,0 +1,10 @@
+project_id = "jcai"
+
+[functions.chat]
+verify_jwt = false
+
+[functions.ocr]
+verify_jwt = false
+
+[functions.search]
+verify_jwt = false
