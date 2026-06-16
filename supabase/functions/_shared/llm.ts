@@ -34,6 +34,7 @@ interface GenOpts {
   imageB64?: { mime: string; data: string };
   web?: boolean; // enable OpenRouter web-search plugin (gated behind user consent)
   onUsage?: (u: LlmUsage) => void; // per-call token/cost accounting
+  model?: string; // explicit slug override (e.g. free overflow model when budget-degraded)
 }
 
 function reportUsage(o: GenOpts, u: unknown) {
@@ -71,7 +72,7 @@ function orHeaders() {
 
 /** Non-streaming generation with 429/5xx backoff. Returns text or parsed JSON. */
 export async function gen<T = string>(o: GenOpts, retries = 3): Promise<T> {
-  const model = o.imageB64 ? MODEL_VISION : modelFor(o.role ?? "fast");
+  const model = o.imageB64 ? MODEL_VISION : (o.model ?? modelFor(o.role ?? "fast"));
   const body = {
     model,
     messages: buildMessages(o),
@@ -114,7 +115,7 @@ export async function gen<T = string>(o: GenOpts, retries = 3): Promise<T> {
 
 /** Streaming generation. Yields content deltas (OpenAI-style SSE). */
 export async function* genStream(o: GenOpts): AsyncGenerator<string> {
-  const model = modelFor(o.role ?? "fast");
+  const model = o.model ?? modelFor(o.role ?? "fast");
   let r: Response | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     r = await fetch(OR_URL, {

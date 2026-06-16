@@ -146,6 +146,13 @@ CASES = [
      [("regex", r"\?")]),
     ("mode_check_answer", {"msg": "I used KE = 1/2 m v^2 with m=2.0 kg and v=3.0 m/s and got 9.0 J. Is that right?"},
      [("contains_any", ["correct", "right", "9.0 J", "9 J"])]),
+    # ---- numeric reasoning (exact-answer; surfaces reasoning degradation) ----
+    ("reason_moles", {"msg": "Calculate the amount, in moles, in 9.8 g of H2SO4 (Mr = 98). [1]"},
+     [("regex", r"0\.10|0\.1\b"), ("not_contains_any", [REDIRECT_SIG])]),
+    ("reason_dilution", {"msg": "25.0 cm3 of 2.0 mol/dm3 HCl is diluted with water to 100 cm3. Calculate the new concentration. [2]"},
+     [("regex", r"0\.50|0\.5\b"), ("not_contains_any", [REDIRECT_SIG])]),
+    ("reason_kinematics", {"msg": "A stone is dropped from rest and falls for 3.0 s. Taking g = 9.81 m/s^2, calculate its speed just before impact. [2]"},
+     [("regex", r"29(\.\d)?|30\b"), ("not_contains_any", [REDIRECT_SIG])]),
     # ---- web-search consent flow ----
     ("web_offer", {"msg": INFLATION_Q},
      [("contains_any", [WEB_OFFER_SIG])]),

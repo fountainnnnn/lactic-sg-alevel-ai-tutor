@@ -35,23 +35,43 @@ Deno.serve(async (req) => {
       { status: 401, headers: { ...corsHeaders, "content-type": "application/json" } });
   }
 
-  // rate limit BEFORE any LLM spend. Burst cap stops runaway clients; daily cap
-  // bounds per-user cost (and is the future free-tier lever). Anon = dev only.
-  if (userId) {
-    const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
-    const perDay = Number(Deno.env.get("TURNS_PER_DAY") ?? 300);
-    const { data: q, error: qErr } = await sb.rpc("quota_counts", { p_user: userId }).single();
-    if (qErr) {
-      console.error("quota check failed:", qErr); // fail open: a quota outage shouldn't down chat
-    } else if ((q as { minute_ct: number }).minute_ct >= perMin ||
-               (q as { day_ct: number }).day_ct >= perDay) {
-      const daily = (q as { day_ct: number }).day_ct >= perDay;
-      return new Response(JSON.stringify({
-        error: "rate_limited",
-        message: daily
-          ? "You've reached today's usage limit. It resets in a few hours — your brain could use the break too!"
-          : "Whoa, slow down a little — give it a few seconds between questions.",
-      }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
+  // Gatekeepers BEFORE any LLM spend, in one round-trip: per-user rate limits +
+  // the GLOBAL monthly budget. Fail-open on a limits-query error (an outage
+  // shouldn't take chat down).
+  let degraded = false; // budget hit -> serve on the free overflow model
+  {
+    const { data: lim, error: limErr } = await sb.rpc("usage_limits", { p_user: userId }).single();
+    if (limErr) {
+      console.error("usage_limits failed:", limErr);
+    } else {
+      const l = lim as { minute_ct: number; day_ct: number; month_cost: number };
+      // 1) global budget circuit-breaker — protects the fixed monthly budget
+      const budget = Number(Deno.env.get("MONTHLY_BUDGET_USD") ?? 40);
+      const overflow = Deno.env.get("MODEL_OVERFLOW"); // free model slug, or unset
+      if (Number(l.month_cost) >= budget) {
+        if (overflow) {
+          degraded = true; // stay UP on a free model rather than going dark
+        } else {
+          return new Response(JSON.stringify({
+            error: "capacity_reached",
+            message: "JCAI has hit its capacity for this month and is taking a short break. Try again soon!",
+          }), { status: 503, headers: { ...corsHeaders, "content-type": "application/json" } });
+        }
+      }
+      // 2) per-user rate limits (signed-in only; anon is dev)
+      if (userId) {
+        const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
+        const perDay = Number(Deno.env.get("TURNS_PER_DAY") ?? 300);
+        if (l.minute_ct >= perMin || l.day_ct >= perDay) {
+          const daily = l.day_ct >= perDay;
+          return new Response(JSON.stringify({
+            error: "rate_limited",
+            message: daily
+              ? "You've reached today's usage limit. It resets in a few hours — your brain could use the break too!"
+              : "Whoa, slow down a little — give it a few seconds between questions.",
+          }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
+        }
+      }
     }
   }
   if (userId && !convId) {
@@ -110,6 +130,7 @@ Deno.serve(async (req) => {
           ocr_text: ocrText,
           history,
           answer_style: body.answer_style,
+          degraded,
         }, {
           onClarify: (q) => send("clarify", { question: q }),
           onToken: (t) => send("token", { t }),

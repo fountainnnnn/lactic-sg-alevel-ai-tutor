@@ -18,6 +18,7 @@ export interface ChatInput {
   ocr_text?: string;
   history?: { role: string; content: string }[];
   answer_style?: "coach" | "direct"; // user toggle: guide me vs just answer
+  degraded?: boolean; // monthly budget hit -> route generation to the free overflow model
 }
 
 export type Intent =
@@ -188,6 +189,10 @@ export async function runAgent(
   const memory: ParsedMemory = parseMemory(input.memory_md);
   const brief = memoryBrief(memory);
   const query = input.ocr_text ? `${input.ocr_text}\n\n${input.message}` : input.message;
+  // budget circuit-breaker: when degraded, the costly ANSWER generation runs on
+  // the free overflow model (the cheap aux calls stay on the reliable paid tier).
+  const overflowModel = input.degraded ? Deno.env.get("MODEL_OVERFLOW") : undefined;
+  if (input.degraded) trace("budget degraded -> overflow model for generation");
 
   // 0. Web-search GRANT path: if the previous turn offered web search and the
   //    student just said yes, run the search now on their ORIGINAL question.
@@ -321,9 +326,11 @@ export async function runAgent(
   // low confidence -> hedge by including the student's raw words in retrieval
   if (pre.confidence < 0.6 && !queries.includes(query)) queries.push(query);
   trace(`queries=${JSON.stringify(queries)}`);
-  // store to cache only for content turns (explain/find); a hit can be served
-  // for any matching key, but we only WRITE answers worth sharing.
-  const cacheStoreOk = cacheLookupOk &&
+  // store to cache only for STABLE content turns: concept explanations + find.
+  // Exclude exam-mode numeric solves (problem-specific, error-prone, low repeat
+  // value — and the place a wrong answer would get cached and re-served), the
+  // degraded free-model tier, and anything not lookup-eligible.
+  const cacheStoreOk = cacheLookupOk && !input.degraded && !examMode &&
     (classify.intent === "explain_concept" || classify.intent === "find_question");
 
   // 4. retrieve (embed all queries + hyde in parallel, union the hits)
@@ -503,9 +510,12 @@ export async function runAgent(
     const d = metaById.get(c.document_id);
     return { n: i + 1, chunk_id: c.chunk_id, ref: refOf(d), verbatim_safe: !!d?.verbatim_safe };
   });
+  // cap only genuinely-huge chunks (rare); aggressive trimming starves grounding
+  // and lets a mismatched EXAM TECHNIQUE block hijack the answer (a kinematics Q
+  // got answered with momentum). 3000 chars keeps normal chunks whole.
   const contextBlock = top.map((c, i) => {
     const d = metaById.get(c.document_id);
-    return `[#${i + 1}] (${refOf(d)}, verbatim_safe=${!!d?.verbatim_safe})\n${c.content}`;
+    return `[#${i + 1}] (${refOf(d)}, verbatim_safe=${!!d?.verbatim_safe})\n${c.content.slice(0, 3000)}`;
   }).join("\n\n");
 
   // 9. generate answer (streamed). Role picks the model via OpenRouter:
@@ -527,7 +537,10 @@ export async function runAgent(
       "below does. NO greeting, NO comprehension checks anywhere (not 'does that " +
       "make sense?', 'sound familiar?', 'are you comfortable with'), NO everyday " +
       "analogies in the working. Lead with the named principle/law, show working " +
-      "line-by-line with units, mirror the mark-scheme keywords and phrasing.\n\n"
+      "line-by-line with units, mirror the mark-scheme keywords and phrasing. " +
+      "But use the EXAM TECHNIQUE blocks for STYLE only — solve THIS question's " +
+      "actual physics; never import a method from a technique block for a " +
+      "different problem type.\n\n"
     : "";
   const userMsg =
     styleDirective +
@@ -549,7 +562,7 @@ export async function runAgent(
   const risky = SECURITY_RISK.test(query);
   trace(`security_gate=${risky}`);
   let answer = "";
-  for await (const t of genStream({ system: sys, user: userMsg, role, onUsage: tally })) {
+  for await (const t of genStream({ system: sys, user: userMsg, role, onUsage: tally, model: overflowModel })) {
     answer += t;
     if (!risky) ev.onToken(t);
   }
@@ -588,7 +601,10 @@ export async function runAgent(
     }).then(({ error }) => error && trace(`cache write failed: ${error.message}`));
   }
 
-  return { answer, citations, model: role, intent: classify.intent, usage, deltaPromise };
+  return {
+    answer, citations, model: input.degraded ? "overflow" : role,
+    intent: classify.intent, usage, deltaPromise,
+  };
 }
 
 function refOf(d: { type?: string; subject?: string; year?: number; school?: string; paper?: number; question?: number; syllabus_code?: string; license?: string } | undefined): string {
