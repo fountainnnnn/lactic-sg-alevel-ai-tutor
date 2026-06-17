@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/tokens.dart';
@@ -7,6 +6,7 @@ import '../../data/models.dart';
 import '../../state/app_state.dart';
 import '../../state/chat_controller.dart';
 import '../shared/illustration.dart';
+import 'streaming_text.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
@@ -40,12 +40,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Keep the view pinned to the bottom as the answer types in — but only if
+  /// the user is already near the bottom, so scrolling up to re-read isn't
+  /// fought. jumpTo (not animateTo) avoids animations stacking each frame.
+  void _followBottom() {
+    if (_scroll.hasClients) {
+      final p = _scroll.position;
+      if (p.maxScrollExtent - p.pixels < 260) _scroll.jumpTo(p.maxScrollExtent);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(chatControllerProvider);
     final t = context.tokens;
     ref.listen(chatControllerProvider, (_, __) => WidgetsBinding.instance
-        .addPostFrameCallback((_) => _toBottom()));
+        .addPostFrameCallback((_) => _followBottom()));
 
     return Scaffold(
       appBar: AppBar(
@@ -69,7 +79,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     itemCount: state.messages.length,
-                    itemBuilder: (_, i) => _Bubble(msg: state.messages[i]),
+                    itemBuilder: (_, i) =>
+                        _Bubble(msg: state.messages[i], onGrow: _followBottom),
                   ),
           ),
           if (state.limit != null) _LimitBanner(limit: state.limit!),
@@ -82,7 +93,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
 class _Bubble extends StatelessWidget {
   final ChatMessage msg;
-  const _Bubble({required this.msg});
+  final VoidCallback? onGrow;
+  const _Bubble({required this.msg, this.onGrow});
 
   @override
   Widget build(BuildContext context) {
@@ -127,12 +139,10 @@ class _Bubble extends StatelessWidget {
           if (msg.content.isEmpty && msg.streaming)
             const _Typing()
           else
-            MarkdownBody(
-              data: msg.content,
-              styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-                p: theme.textTheme.bodyLarge,
-                strong: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
+            StreamingText(
+              text: msg.content,
+              done: !msg.streaming,
+              onGrow: onGrow,
             ),
           if (msg.citations.isNotEmpty) ...[
             const SizedBox(height: 12),
