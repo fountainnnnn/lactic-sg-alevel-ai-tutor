@@ -52,7 +52,8 @@ class SettingsNotifier extends StateNotifier<Settings> {
   static ThemeMode _modeFrom(String? s) => switch (s) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
-        _ => ThemeMode.system,
+        'system' => ThemeMode.system,
+        _ => ThemeMode.light, // default to light when unset
       };
 
   void setThemeMode(ThemeMode m) {
