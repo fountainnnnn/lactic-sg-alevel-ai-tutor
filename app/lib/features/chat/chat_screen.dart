@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/tokens.dart';
 import '../../data/models.dart';
@@ -59,7 +60,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 16,
+        titleSpacing: 0,
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+        ),
         title: const Text('JCAI'),
         actions: [
           if (state.messages.isNotEmpty)
@@ -77,7 +83,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ? const _EmptyChat()
                 : ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                     itemCount: state.messages.length,
                     itemBuilder: (_, i) =>
                         _Bubble(msg: state.messages[i], onGrow: _followBottom),
@@ -104,10 +110,11 @@ class _Bubble extends StatelessWidget {
       return Align(
         alignment: Alignment.centerRight,
         child: Container(
-          margin: const EdgeInsets.only(left: 48, bottom: 14),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          margin: const EdgeInsets.only(left: 56, bottom: 18),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: t.primarySoft,
+            border: Border.all(color: t.border),
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(FF.rBubble),
               topRight: Radius.circular(FF.rBubble),
@@ -116,13 +123,13 @@ class _Bubble extends StatelessWidget {
             ),
           ),
           child: Text(msg.content,
-              style: TextStyle(color: t.onPrimarySoft, fontWeight: FontWeight.w600, height: 1.4)),
+              style: TextStyle(color: theme.colorScheme.onSurface, fontWeight: FontWeight.w600, height: 1.45)),
         ),
       );
     }
     return Container(
-      margin: const EdgeInsets.only(right: 24, bottom: 14),
-      padding: const EdgeInsets.fromLTRB(15, 14, 15, 12),
+      margin: const EdgeInsets.only(right: 40, bottom: 18),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border.all(color: t.border),
@@ -132,10 +139,22 @@ class _Bubble extends StatelessWidget {
           bottomRight: Radius.circular(FF.rBubble),
           bottomLeft: Radius.circular(4),
         ),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // tutor identity line
+          Row(children: [
+            Icon(Icons.auto_awesome_rounded, size: 15, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text('JCAI',
+                style: TextStyle(
+                    color: theme.colorScheme.primary, fontWeight: FontWeight.w700, fontSize: 12.5, letterSpacing: 0.2)),
+          ]),
+          const SizedBox(height: 8),
           if (msg.content.isEmpty && msg.streaming)
             const _Typing()
           else
@@ -145,25 +164,37 @@ class _Bubble extends StatelessWidget {
               onGrow: onGrow,
             ),
           if (msg.citations.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(top: 14, bottom: 12),
+              child: Divider(height: 1, color: t.border),
+            ),
+            // compact numbered pills — a legend for the inline [#n] citations;
+            // the full source name is on the tooltip (long-press / hover).
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: 8,
+              runSpacing: 8,
               children: msg.citations
-                  .map((c) => Chip(
-                        label: Text('#${c.n} ${c.ref}'),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        labelStyle: TextStyle(fontSize: 12, color: t.onPrimarySoft),
+                  .map((c) => Tooltip(
+                        message: c.ref,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: t.primarySoft,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: t.border),
+                          ),
+                          child: Text('#${c.n}',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: t.onPrimarySoft)),
+                        ),
                       ))
                   .toList(),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
             Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.verified_rounded, size: 14, color: t.success),
+              Icon(Icons.check_circle_rounded, size: 14, color: t.success),
               const SizedBox(width: 5),
-              Text('Grounded in ${msg.citations.length} source${msg.citations.length == 1 ? '' : 's'}',
-                  style: TextStyle(fontSize: 12, color: t.textMuted, fontWeight: FontWeight.w600)),
+              Text('GROUNDED IN ${msg.citations.length} SOURCE${msg.citations.length == 1 ? '' : 'S'}',
+                  style: TextStyle(fontSize: 11, color: t.success, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
             ]),
           ],
         ],
@@ -295,7 +326,7 @@ class _Composer extends ConsumerWidget {
                 child: FilledButton(
                   style: FilledButton.styleFrom(
                     padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FF.rButton)),
+                    shape: const CircleBorder(),
                   ),
                   onPressed: sending ? null : onSend,
                   child: sending
