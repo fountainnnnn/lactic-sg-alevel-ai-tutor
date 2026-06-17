@@ -17,7 +17,7 @@ Future<void> main() async {
   );
 
   final prefs = await SharedPreferences.getInstance();
-  final memory = MemoryStore();
+  final memory = MemoryStore(prefs);
   await memory.load();
 
   runApp(

@@ -1,30 +1,24 @@
-import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:path_provider/path_provider.dart';
-
-/// On-device `memory.md` (privacy by default). Sent to the backend each turn to
+/// On-device `memory.md` (privacy by default), stored in SharedPreferences so it
+/// works on every platform including web. Sent to the backend each turn to
 /// personalise answers; the backend returns a delta we apply locally. We never
 /// claim it "stays on device" in copy — it is transmitted securely for inference.
 class MemoryStore {
-  static const _fileName = 'memory.md';
-  File? _file;
+  static const _key = 'memory_md';
+  final SharedPreferences _prefs;
   String _md = '';
+
+  MemoryStore(this._prefs);
 
   String get markdown => _md;
 
-  Future<File> _handle() async {
-    if (_file != null) return _file!;
-    final dir = await getApplicationDocumentsDirectory();
-    return _file = File('${dir.path}/$_fileName');
-  }
-
   Future<String> load() async {
-    final f = await _handle();
-    _md = await f.exists() ? await f.readAsString() : '# JCAI Memory\n';
+    _md = _prefs.getString(_key) ?? '# JCAI Memory\n';
     return _md;
   }
 
-  Future<void> _save() async => (await _handle()).writeAsString(_md);
+  Future<void> _save() async => _prefs.setString(_key, _md);
 
   /// Write the Profile section from onboarding (subjects + level).
   Future<void> setProfile({
@@ -38,10 +32,7 @@ class MemoryStore {
     if (level != null && level.isNotEmpty) lines.add('- JC year: $level');
     final profile = '${lines.join('\n')}\n';
     if (_md.contains('## Profile')) {
-      _md = _md.replaceFirst(
-        RegExp(r'## Profile[\s\S]*?(?=\n## |\$)'),
-        profile,
-      );
+      _md = _md.replaceFirst(RegExp(r'## Profile[\s\S]*?(?=\n## |$)'), profile);
     } else {
       _md = _md.trimRight().isEmpty ? '# JCAI Memory\n\n$profile' : '$_md\n$profile';
     }
@@ -70,7 +61,6 @@ class MemoryStore {
     if (!_md.contains('## $heading')) {
       _md = '${_md.trimRight()}\n\n## $heading\n';
     }
-    // prepend the new line right under the heading (newest first)
     _md = _md.replaceFirst('## $heading\n', '## $heading\n$line\n');
   }
 
