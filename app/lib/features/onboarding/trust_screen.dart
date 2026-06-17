@@ -44,20 +44,20 @@ class TrustScreen extends ConsumerWidget {
                 child: ListView(
                   children: _points
                       .map((p) => Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(14),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: theme.colorScheme.surface,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(18),
                               border: Border.all(color: t.border),
                             ),
                             child: Row(children: [
                               Container(
-                                width: 40,
-                                height: 40,
-                                decoration:
-                                    BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(11)),
-                                child: Icon(p.$1, size: 21, color: t.onPrimarySoft),
+                                width: 44,
+                                height: 44,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(color: t.primarySoft, shape: BoxShape.circle),
+                                child: Icon(p.$1, size: 22, color: t.onPrimarySoft),
                               ),
                               const SizedBox(width: 12),
                               Expanded(

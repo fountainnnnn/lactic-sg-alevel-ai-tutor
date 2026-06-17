@@ -39,57 +39,106 @@ class _SubjectsScreenState extends ConsumerState<SubjectsScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    final text = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final text = theme.textTheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Step 1 of 2')),
+      appBar: AppBar(
+        titleSpacing: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/welcome'),
+        ),
+        title: const Text('JCAI'),
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('What are you studying?', style: text.titleLarge),
+              Text('What are you studying?', style: text.headlineSmall),
               const SizedBox(height: 6),
-              Text('I will tailor every explanation to your subjects and level.',
+              Text('I’ll tailor every explanation to your subjects and level.',
                   style: TextStyle(color: t.textMuted, height: 1.5)),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               _LevelToggle(value: _level, tokens: t, onChanged: (v) => setState(() => _level = v)),
-              const SizedBox(height: 18),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Text('YOUR SUBJECTS',
+                      style: TextStyle(
+                          color: t.textMuted, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+                  const Spacer(),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: _selected.isEmpty
+                        ? const SizedBox.shrink()
+                        : Container(
+                            key: ValueKey(_selected.length),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                            decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(999)),
+                            child: Text('${_selected.length} selected',
+                                style: TextStyle(color: t.onPrimarySoft, fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               Expanded(
                 child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: _subjects.map((s) {
-                      final on = _selected.contains(s);
-                      return GestureDetector(
-                        onTap: () => setState(() => on ? _selected.remove(s) : _selected.add(s)),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: on ? t.primarySoft : Theme.of(context).colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: on ? Theme.of(context).colorScheme.primary : t.border),
+                  child: LayoutBuilder(builder: (ctx, c) {
+                    final w = (c.maxWidth - 12) / 2;
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: _subjects.map((s) {
+                        final on = _selected.contains(s);
+                        return SizedBox(
+                          width: w,
+                          child: GestureDetector(
+                            onTap: () => setState(() => on ? _selected.remove(s) : _selected.add(s)),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 140),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                              decoration: BoxDecoration(
+                                color: on ? t.primarySoft : scheme.surface,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: on ? scheme.primary : t.border, width: on ? 1.5 : 1),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(s,
+                                        style: TextStyle(
+                                            color: on ? t.onPrimarySoft : null, fontWeight: FontWeight.w600),
+                                        overflow: TextOverflow.ellipsis),
+                                  ),
+                                  Icon(on ? Icons.check_circle_rounded : Icons.circle_outlined,
+                                      size: 18, color: on ? t.onPrimarySoft : t.border),
+                                ],
+                              ),
+                            ),
                           ),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            if (on) ...[
-                              Icon(Icons.check_rounded, size: 16, color: t.onPrimarySoft),
-                              const SizedBox(width: 6),
-                            ],
-                            Text(s,
-                                style: TextStyle(
-                                    color: on ? t.onPrimarySoft : null,
-                                    fontWeight: FontWeight.w600)),
-                          ]),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                        );
+                      }).toList(),
+                    );
+                  }),
                 ),
               ),
-              FilledButton(
-                onPressed: _selected.isEmpty ? null : _continue,
-                child: const Text('Continue'),
+              const SizedBox(height: 8),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.cloud_done_outlined, size: 15, color: t.textMuted),
+                const SizedBox(width: 6),
+                Text('Saved on your device', style: TextStyle(color: t.textMuted, fontSize: 12.5)),
+              ]),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _selected.isEmpty ? null : _continue,
+                  child: const Text('Continue'),
+                ),
               ),
             ],
           ),
@@ -107,23 +156,23 @@ class _LevelToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     Widget seg(String v) {
       final on = value == v;
       return Expanded(
         child: GestureDetector(
           onTap: () => onChanged(v),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
             alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(vertical: 9),
             decoration: BoxDecoration(
-              color: on ? Theme.of(context).colorScheme.surface : Colors.transparent,
+              color: on ? scheme.surface : Colors.transparent,
               borderRadius: BorderRadius.circular(999),
               border: on ? Border.all(color: tokens.border) : null,
             ),
             child: Text(v,
-                style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: on ? tokens.onPrimarySoft : tokens.textMuted)),
+                style: TextStyle(fontWeight: FontWeight.w700, color: on ? scheme.primary : tokens.textMuted)),
           ),
         ),
       );

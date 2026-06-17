@@ -66,11 +66,26 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           children: [
-            Text('Save your progress', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: t.border),
+                ),
+                child: Icon(Icons.school_rounded, size: 36, color: theme.colorScheme.primary),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text('Save your progress', textAlign: TextAlign.center, style: theme.textTheme.headlineSmall),
             const SizedBox(height: 6),
-            Text('Sync your study memory across devices. Optional, you can keep using JCAI without an account.',
-                style: TextStyle(color: t.textMuted, height: 1.5)),
-            const SizedBox(height: 24),
+            Text('Sync your study memory across devices. Optional — you can keep using JCAI without an account.',
+                textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, height: 1.5)),
+            const SizedBox(height: 28),
             OutlinedButton.icon(
               onPressed: () => _soon('Google'),
               icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
@@ -122,6 +137,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                 child: Text(_creating ? 'Have an account? Sign in' : 'New here? Create an account'),
               ),
             ),
+            const SizedBox(height: 8),
+            Text('By continuing you agree to our Terms and Privacy Policy.',
+                textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, fontSize: 11.5, height: 1.4)),
           ],
         ),
       ),

@@ -49,9 +49,19 @@ class PremiumScreen extends StatelessWidget {
             ..._features.map((f) => Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(color: t.surfaceMuted, borderRadius: BorderRadius.circular(14)),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: t.border),
+                  ),
                   child: Row(children: [
-                    Icon(f.$1, color: t.onPrimarySoft),
+                    Container(
+                      width: 40,
+                      height: 40,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: t.primarySoft, shape: BoxShape.circle),
+                      child: Icon(f.$1, size: 20, color: t.onPrimarySoft),
+                    ),
                     const SizedBox(width: 13),
                     Expanded(
                       child: Column(
@@ -72,7 +82,13 @@ class PremiumScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             OutlinedButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Maybe later')),
-            const SizedBox(height: 14),
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No previous purchases to restore.'))),
+              child: const Text('Restore purchases'),
+            ),
+            const SizedBox(height: 8),
             Center(
               child: Text('Recurring billing. Cancel anytime in your app store settings.',
                   textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, fontSize: 11.5)),
