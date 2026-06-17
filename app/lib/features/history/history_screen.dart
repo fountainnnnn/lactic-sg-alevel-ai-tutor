@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/tokens.dart';
+import '../shared/illustration.dart';
 
 /// History of past conversations. Conversations persist server-side for
 /// signed-in users; until sign-in is wired, this shows the real empty state.
@@ -18,8 +19,8 @@ class HistoryScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.history_rounded, size: 44, color: t.textMuted),
-              const SizedBox(height: 16),
+              const Illustration('empty_chats', size: 150),
+              const SizedBox(height: 12),
               Text('No saved questions yet', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               Text(

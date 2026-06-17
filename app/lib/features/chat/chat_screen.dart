@@ -6,6 +6,7 @@ import '../../core/theme/tokens.dart';
 import '../../data/models.dart';
 import '../../state/app_state.dart';
 import '../../state/chat_controller.dart';
+import '../shared/illustration.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
@@ -187,8 +188,8 @@ class _EmptyChat extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.chat_bubble_outline_rounded, size: 44, color: t.textMuted),
-            const SizedBox(height: 16),
+            const Illustration('empty_chats', size: 150),
+            const SizedBox(height: 12),
             Text('Ask me anything', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
