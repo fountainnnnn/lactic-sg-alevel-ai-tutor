@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/chat_service.dart';
+import '../data/conversation_store.dart';
 import '../data/memory_store.dart';
 
 /// Overridden in main() once async init is done.
@@ -12,6 +13,9 @@ final prefsProvider = Provider<SharedPreferences>((_) => throw UnimplementedErro
 final memoryStoreProvider = Provider<MemoryStore>((_) => throw UnimplementedError());
 
 final chatServiceProvider = Provider<ChatService>((_) => ChatService());
+final conversationStoreProvider =
+    Provider<ConversationStore>((ref) => ConversationStore(ref.watch(prefsProvider)));
+final streakStoreProvider = Provider<StreakStore>((ref) => StreakStore(ref.watch(prefsProvider)));
 
 /// Stable per-install id (for anonymous rate limiting on the backend).
 final deviceIdProvider = Provider<String>((ref) {

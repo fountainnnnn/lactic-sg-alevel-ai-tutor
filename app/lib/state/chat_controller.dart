@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/conversation_store.dart';
 import '../data/models.dart';
 import 'app_state.dart';
 
@@ -24,11 +25,27 @@ class ChatState {
 /// message, applies the returned memory delta. Wired to the real backend.
 class ChatController extends StateNotifier<ChatState> {
   final Ref ref;
+  Conversation? _current;
   ChatController(this.ref) : super(const ChatState());
+
+  /// Resume a saved conversation.
+  void load(Conversation c) {
+    _current = c;
+    state = ChatState(messages: List.of(c.messages));
+  }
 
   Future<void> send(String text, {String? subjectHint, String? levelHint}) async {
     final msg = text.trim();
     if (msg.isEmpty || state.sending) return;
+
+    ref.read(streakStoreProvider).record();
+    _current ??= Conversation(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      title: msg.length > 60 ? '${msg.substring(0, 60)}…' : msg,
+      subject: subjectHint ?? '',
+      updatedAt: DateTime.now(),
+      messages: [],
+    );
 
     final memory = ref.read(memoryStoreProvider);
     final answerStyle = ref.read(settingsProvider).answerStyle;
@@ -95,10 +112,19 @@ class ChatController extends StateNotifier<ChatState> {
         );
       }
       state = state.copyWith(messages: [...state.messages], sending: false);
+      final c = _current;
+      if (c != null && state.messages.isNotEmpty) {
+        c.messages = state.messages.where((m) => !m.streaming).toList();
+        c.updatedAt = DateTime.now();
+        ref.read(conversationStoreProvider).save(c);
+      }
     }
   }
 
-  void reset() => state = const ChatState();
+  void reset() {
+    _current = null;
+    state = const ChatState();
+  }
 }
 
 final chatControllerProvider =
