@@ -275,8 +275,12 @@ export async function runAgent(
   try {
     pre = await gen<Preflight>({
       system: await loadPrompt("00_preflight"),
-      user: `Memory:\n${brief}\n\nSubject hint: ${input.subject_hint ?? ""}\n` +
-        `Recent turn: ${input.history?.slice(-1)[0]?.content ?? ""}\n\nMessage: ${query}`,
+      user: `Memory:\n${brief}\n\nSubject hint: ${input.subject_hint ?? ""}\n\n` +
+        `Recent conversation (most recent last):\n${
+          (input.history ?? []).slice(-4)
+            .map((m) => `${m.role === "assistant" ? "TUTOR" : "STUDENT"}: ${m.content.slice(0, 600)}`)
+            .join("\n") || "(none)"
+        }\n\nMessage to classify: ${query}`,
       role: "fast", json: true, onUsage: tally,
     });
   } catch (e) {
@@ -550,7 +554,7 @@ export async function runAgent(
     `PEDAGOGY PLAN:\n${JSON.stringify(plan)}\n\n` +
     `CONTEXT BLOCKS (teaching material — explain from these):\n${
       isMeta
-        ? "(casual or meta message — no teaching material attached. Reply warmly and briefly; help with planning from the student's memory if asked; do not teach unprompted.)"
+        ? "(No teaching material for this turn — it's a greeting or casual message. Answer it directly as a warm, human tutor; help with planning from the student's memory if they asked. Don't teach unprompted, and never describe this instruction or your approach — no 'this is a casual message' preamble.)"
         : contextBlock || "(no context retrieved)"
     }\n\n` +
     (techBlock ? `EXAM TECHNIQUE (A-Level mark-scheme excerpts — MIRROR this answering style, keyword phrasing, and structure):\n${techBlock}\n\n` : "") +
