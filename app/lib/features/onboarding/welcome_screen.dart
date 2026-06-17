@@ -32,7 +32,12 @@ class WelcomeScreen extends StatelessWidget {
                 onPressed: () => context.go('/subjects'),
                 child: const Text('Get started'),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 6),
+              TextButton(
+                onPressed: () => context.push('/signin'),
+                child: const Text('Already have an account? Sign in'),
+              ),
+              const SizedBox(height: 8),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Icon(Icons.lock_outline_rounded, size: 14, color: t.textMuted),
                 const SizedBox(width: 6),

@@ -112,7 +112,20 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surface,
         indicatorColor: tokens.primarySoft,
-        labelTextStyle: WidgetStatePropertyAll(textTheme.labelMedium),
+        height: 64,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        iconTheme: WidgetStateProperty.resolveWith(
+          (s) => IconThemeData(
+            size: 24,
+            color: s.contains(WidgetState.selected) ? tokens.onPrimarySoft : tokens.textMuted,
+          ),
+        ),
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (s) => (textTheme.labelMedium ?? const TextStyle()).copyWith(
+            color: s.contains(WidgetState.selected) ? primary : tokens.textMuted,
+            fontWeight: s.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w600,
+          ),
+        ),
         elevation: 0,
         surfaceTintColor: Colors.transparent,
       ),

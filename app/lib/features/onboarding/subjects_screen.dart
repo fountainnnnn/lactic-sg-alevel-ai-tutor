@@ -30,10 +30,10 @@ class _SubjectsScreenState extends ConsumerState<SubjectsScreen> {
 
   Future<void> _continue() async {
     final memory = ref.read(memoryStoreProvider);
-    await memory.setProfile(subjects: _selected.toList(), level: 'JC2');
-    await ref.read(prefsProvider).setBool('onboarding_done', true);
-    ref.read(onboardingDoneProvider.notifier).state = true;
-    if (mounted) context.go('/home');
+    // tag subjects with the chosen level (e.g. "H2 Chemistry") for the backend
+    final tagged = _selected.map((s) => s == 'General Paper' ? 'H1 $s' : '$_level $s').toList();
+    await memory.setProfile(subjects: tagged, level: 'JC2');
+    if (mounted) context.go('/live_taste');
   }
 
   @override
