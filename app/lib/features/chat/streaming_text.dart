@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+
+import 'markdown_math.dart';
 
 /// Reveals an answer with a smooth typewriter + blinking caret while it streams,
 /// then settles into formatted Markdown once the turn is done. The reveal pace
@@ -81,13 +82,7 @@ class _StreamingTextState extends State<StreamingText> {
     final showMarkdown = !_animated || (widget.done && fullyShown);
 
     if (showMarkdown) {
-      return MarkdownBody(
-        data: widget.text,
-        styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-          p: theme.textTheme.bodyLarge,
-          strong: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-        ),
-      );
+      return MathMarkdown(widget.text);
     }
 
     final shown = widget.text.substring(0, _shown.clamp(0, widget.text.length));

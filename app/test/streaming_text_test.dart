@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jcai/features/chat/streaming_text.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:lactic/features/chat/streaming_text.dart';
 
 void main() {
   testWidgets('types the answer in, then settles into Markdown when done',
@@ -21,7 +21,7 @@ void main() {
 
     // Mid-stream: rendered as plain text with a blinking caret — NOT Markdown yet.
     await tester.pump(const Duration(milliseconds: 600));
-    expect(find.byType(MarkdownBody), findsNothing,
+    expect(find.byType(GptMarkdown), findsNothing,
         reason: 'should stream as plain text, not formatted markdown');
     expect(find.textContaining('▌'), findsOneWidget,
         reason: 'a caret should show while typing');
@@ -33,7 +33,7 @@ void main() {
     await tester.pump(); // apply done:true
     await tester.pump(const Duration(milliseconds: 100)); // reveal timer cancels itself
 
-    expect(find.byType(MarkdownBody), findsOneWidget,
+    expect(find.byType(GptMarkdown), findsOneWidget,
         reason: 'finished answer renders as formatted markdown');
     expect(find.textContaining('▌'), findsNothing,
         reason: 'caret gone once finished');
@@ -49,7 +49,7 @@ void main() {
     ));
 
     // done:true from the first frame => straight to Markdown, no animation/timers.
-    expect(find.byType(MarkdownBody), findsOneWidget);
+    expect(find.byType(GptMarkdown), findsOneWidget);
     expect(find.textContaining('▌'), findsNothing);
   });
 }

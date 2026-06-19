@@ -16,6 +16,7 @@ the richest new layer — they get textbook_section so they earn explained_by ed
 """
 from __future__ import annotations
 
+import os
 import re
 import zipfile
 from pathlib import Path
@@ -68,6 +69,10 @@ def _pdf_note(data: bytes, path: Path, ntype: str, lic: str, vsafe: bool,
     except Exception:
         return []
     text = clean_pdf_text("\n".join(p.get_text() for p in d))
+    # image-only scan (no text layer) -> fall back to local OCR when enabled
+    if len(_NOISE.sub("", text).strip()) < 80 and os.environ.get("JCAI_OCR") == "1":
+        from ..ocr_local import ocr_doc
+        text = clean_pdf_text(ocr_doc(d))
     d.close()
     text = _NOISE.sub("", text).strip()
     if len(text) < 80:

@@ -1,4 +1,4 @@
-# Google Stitch — JCAI design brief
+# Google Stitch — Lactic design brief
 
 How to use: Stitch works best as a **standing app description + per-screen
 prompts**. Paste **Part A (Master brief)** as the app description / first prompt,
@@ -9,7 +9,7 @@ at the top of each screen prompt if Stitch loses the theme.
 
 ## PART A — MASTER BRIEF (paste first)
 
-Design a polished **mobile app** called **JCAI**, an AI study tutor for Singapore
+Design a polished **mobile app** called **Lactic**, an AI study tutor for Singapore
 Junior College students preparing for the GCE A-Level (ages 16–18). It answers
 their subject questions, grounded in real Singapore prelim papers and the SEAB
 syllabus, and shows worked exam answers. Tone: **warm, friendly, and
@@ -123,7 +123,7 @@ two-pane chat (list ‖ conversation).
     questions yet — ask me anything" + a primary CTA.
 15. **Daily limit (429)** — calm illustration placeholder + "You've reached
     today's questions — back in a few hours" + secondary CTA.
-16. **At capacity (503)** — "JCAI's taking a short break — try again soon."
+16. **At capacity (503)** — "Lactic's taking a short break — try again soon."
 17. **Offline / error** — clear cause + a retry button.
 
 ---

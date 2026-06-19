@@ -1,10 +1,10 @@
-// JCAI agent harness — deterministic node pipeline (LangGraph-style, plain TS).
+// Lactic agent harness — deterministic node pipeline (LangGraph-style, plain TS).
 // parse_memory -> classify -> maybe_clarify -> reformulate -> retrieve ->
 // rerank -> graph_expand -> plan_pedagogy -> generate(stream) -> memory_delta
 
 import { gen, genStream, LlmUsage, Role, voyageEmbed } from "./llm.ts";
 import {
-  expandGraph, Filters, getDocuments, lookupDocument, RetrievedChunk, retrieveContext,
+  expandGraph, Filters, getDocuments, lookupDocument, RetrievedChunk, retrieveAnalyzedNotes, retrieveContext,
 } from "./db.ts";
 import { MemoryDelta, memoryBrief, ParsedMemory, parseMemory } from "./memory.ts";
 import { loadPrompt } from "./prompts.ts";
@@ -19,6 +19,8 @@ export interface ChatInput {
   history?: { role: string; content: string }[];
   answer_style?: "coach" | "direct"; // user toggle: guide me vs just answer
   degraded?: boolean; // monthly budget hit -> route generation to the free overflow model
+  premium?: boolean; // paid tier -> Gemini answers; free tier -> cheaper DeepSeek
+  persist_memory?: boolean; // signed-in only: build the memory delta. Anon -> skip (no memory).
 }
 
 export type Intent =
@@ -40,11 +42,19 @@ interface PlanOut {
   escalate_to_pro?: boolean;
 }
 
+export interface ExamInsightPayload {
+  tested: boolean;
+  summary: string;
+  question: string | null; // one real prelim question, verbatim
+  ref: string | null; // e.g. "H2 Chemistry 2022 Prelim"
+}
+
 export interface AgentEvents {
   onClarify: (q: string) => void;
   onToken: (t: string) => void;
   onCitations: (c: Citation[]) => void;
   onMemoryDelta: (d: MemoryDelta) => void;
+  onExamInsight?: (i: ExamInsightPayload) => void;
   onTrace?: (entry: string) => void;
 }
 
@@ -90,8 +100,25 @@ const SECURITY_BLOCKED_MSG =
 // Answer cache. Bump CACHE_VERSION whenever a prompt/pipeline change should make
 // previously-cached answers stale (it's part of the key, so old entries simply
 // stop matching). TTL caps staleness from content/index changes.
-const CACHE_VERSION = "2026-06-13a";
+const CACHE_VERSION = "2026-06-19c";
+
+// System prompt for the student-facing "How this is tested" card. Produces the
+// same how-it's-tested / common-errors / tricks shape as the onboarding demo,
+// grounded in the retrieved prelim + mark-scheme excerpts.
+const INSIGHT_SYS =
+  `You are an A-Level exam coach for Singapore JC students. Given a STUDENT TOPIC and excerpts ` +
+  `from real prelim questions and mark schemes, output JSON with exactly these keys: ` +
+  `{"how_tested": string, "common_errors": string, "tricks": string}. ` +
+  `how_tested: how THIS topic actually appears in A-Level/prelim papers (question style, command words, typical marks). ` +
+  `common_errors: the mistakes students most often make on it. ` +
+  `tricks: the single most useful technique or tip to score. ` +
+  `Each value is one sentence, <= 30 words, concrete and specific to the topic. Plain text, no markdown, no preamble.`;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Product rule: no em/en dashes anywhere the student sees. Models emit them
+// constantly despite prompt instructions, so strip at the output boundary too.
+// Plain char swap (not space-collapsing) so it's safe to apply per stream token.
+const noDash = (s: string): string => s.replace(/[—–]/g, "-");
 
 async function sha256Hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -191,7 +218,12 @@ export async function runAgent(
   const query = input.ocr_text ? `${input.ocr_text}\n\n${input.message}` : input.message;
   // budget circuit-breaker: when degraded, the costly ANSWER generation runs on
   // the free overflow model (the cheap aux calls stay on the reliable paid tier).
-  const overflowModel = input.degraded ? Deno.env.get("MODEL_OVERFLOW") : undefined;
+  // degraded MUST land on a cheap model — never fall through to a paid one (which
+  // would defeat the budget breaker). If MODEL_OVERFLOW is unset, use the free
+  // model rather than undefined.
+  const overflowModel = input.degraded
+    ? (Deno.env.get("MODEL_OVERFLOW") ?? Deno.env.get("MODEL_FREE") ?? "deepseek/deepseek-v3.2")
+    : undefined;
   if (input.degraded) trace("budget degraded -> overflow model for generation");
 
   // 0. Web-search GRANT path: if the previous turn offered web search and the
@@ -247,7 +279,7 @@ export async function runAgent(
       CACHE_VERSION, query.toLowerCase().replace(/\s+/g, " ").trim(),
       input.subject_hint ?? "", input.level_hint ?? "", answerStyle, examMode ? "exam" : "teach",
     ].join("|"));
-    const { data: hit } = await sb.from("answer_cache").select("answer, citations")
+    const { data: hit } = await sb.from("answer_cache").select("answer, citations, exam_insight")
       .eq("key", cacheKey)
       .gt("created_at", new Date(Date.now() - CACHE_TTL_MS).toISOString())
       .maybeSingle();
@@ -255,6 +287,7 @@ export async function runAgent(
       trace("answer_cache HIT (pre-preflight)");
       ev.onToken(hit.answer as string);
       ev.onCitations((hit.citations as Citation[]) ?? []);
+      if (hit.exam_insight) ev.onExamInsight?.(hit.exam_insight as ExamInsightPayload);
       sb.rpc("bump_answer_cache", { p_key: cacheKey }).then(() => {}); // fire-and-forget
       return {
         answer: hit.answer as string, citations: (hit.citations as Citation[]) ?? [],
@@ -311,7 +344,7 @@ export async function runAgent(
 
   // 3. clarify early-exit
   if (pre.needs_clarification && pre.clarifying_question) {
-    ev.onClarify(pre.clarifying_question.trim());
+    ev.onClarify(noDash(pre.clarifying_question.trim()));
     return { answer: pre.clarifying_question, citations: [], model: "fast", intent: pre.intent, usage };
   }
 
@@ -403,11 +436,21 @@ export async function runAgent(
     // mark-scheme pool: how an examiner actually answers. Used to teach A-Level
     // answering technique (mark-allocated keywords, structure, mark-scheme phrasing).
     const techFilters: Filters = { ...filters, types: MARKSCHEME_TYPES };
-    [teachHits, examHits, techHits] = await Promise.all([
+    // Tier-2 knowledge (lecture notes, prelims, TYS) now lives as derived,
+    // copyright-safe analyzed_notes. concept -> teaching pool; question_pattern
+    // carries how-it's-tested + answer structure -> exam + technique pools.
+    const anSubjects = crossLevel ?? (filters.subject ? [filters.subject] : null);
+    const [tHits, eHits, kHits, anConcept, anQuestion] = await Promise.all([
       retrieveContext(sb, qEmbed, qText, hydeEmbed, teachFilters, 40),
       retrieveContext(sb, qEmbed, qText, hydeEmbed, examFilters, 15),
       retrieveContext(sb, qEmbed, qText, hydeEmbed, techFilters, 6),
+      retrieveAnalyzedNotes(sb, qEmbed, qText, hydeEmbed, anSubjects, "concept", 30),
+      retrieveAnalyzedNotes(sb, qEmbed, qText, hydeEmbed,
+        filters.subject ? [filters.subject] : anSubjects, "question_pattern", 20),
     ]);
+    teachHits = [...tHits, ...anConcept];
+    examHits = [...eHits, ...anQuestion];
+    techHits = [...kHits, ...anQuestion.slice(0, 6)];
     // thin-coverage fallback: if the Singapore teaching pool is empty (niche
     // subject with no lecture notes), retrieve broadly so we never answer blind
     if (!teachHits.length && !isFindQuestion) {
@@ -469,15 +512,20 @@ export async function runAgent(
   //     examined: rough frequency + a couple of practice references. This is a
   //     guidance layer, NOT explanation material.
   let examInsight = "";
-  if (!isFindQuestion && examHits.length) {
-    const exDocs = await getDocuments(sb, [...new Set(examHits.map((h) => h.document_id))].slice(0, 6));
-    const refs = exDocs.map((d) => refOf(d))
-      .filter((r) => r && r !== "school prelim material" && !r.endsWith(" answers"))
-      .slice(0, 3);
+  let examInsightPayload: ExamInsightPayload | null = null;
+  let examInsightPromise: Promise<ExamInsightPayload | null> = Promise.resolve(null);
+  // Only show "How this is tested" when the topic is actually examined in
+  // A-Level material — i.e. we found real exam-type hits for it. If there are
+  // no exam hits (off-syllabus, niche, or not an A-Level exam topic), nothing
+  // is emitted and the section simply does not appear (user request).
+  const showInsight = !isMeta && !isFindQuestion && examHits.length > 0;
+  let freqCap = "";
+  if (showInsight) {
     const freq = examHits.length >= 12 ? "frequently" : examHits.length >= 5 ? "regularly" : "occasionally";
-    examInsight = `This topic is ${freq} examined in Singapore prelim papers` +
-      (refs.length ? ` (e.g. ${refs.join("; ")})` : "") + ".";
-    trace(`exam_insight refs=${refs.length}`);
+    freqCap = freq.charAt(0).toUpperCase() + freq.slice(1);
+    // internal guidance fed to the tutor (not shown to the student)
+    examInsight = `This topic is ${freq} examined in Singapore prelim/A-level papers.`;
+    trace(`exam_insight tested freq=${freq}`);
   }
 
   // 6b. EXAM TECHNIQUE — show the tutor how A-Level mark schemes actually phrase
@@ -494,6 +542,35 @@ export async function runAgent(
     }).join("\n\n");
     trace(`exam_technique chunks=${techTop.length}`);
   }
+  // 6c. Rich "How this is tested" card (student-facing): generate concrete
+  //     how-it's-tested / common-errors / tricks from the retrieved prelim +
+  //     mark-scheme excerpts — same shape as the onboarding demo cards. Runs in
+  //     parallel with answer streaming (emitted after the answer) so it adds
+  //     ~no latency. Falls back to the frequency line on any failure.
+  if (showInsight) {
+    examInsightPromise = (async () => {
+      try {
+        const exSnip = examHits.slice(0, 3).map((h) => h.content.slice(0, 500)).join("\n---\n");
+        const msSnip = techHits.slice(0, 2).map((h) => h.content.slice(0, 600)).join("\n---\n");
+        const out = await gen<{ how_tested: string; common_errors: string; tricks: string }>({
+          system: INSIGHT_SYS,
+          user: `STUDENT TOPIC: ${classify.suggested_topic ?? query}\n\n` +
+            `PRELIM QUESTION EXCERPTS:\n${exSnip || "(none)"}\n\n` +
+            `MARK SCHEME EXCERPTS:\n${msSnip || "(none)"}`,
+          role: "fast",
+          json: true,
+          onUsage: tally,
+        });
+        const summary = noDash(`**How it's tested:** ${out.how_tested}\n\n` +
+          `**Common errors:** ${out.common_errors}\n\n**Tricks:** ${out.tricks}`);
+        return { tested: true, summary, question: null, ref: null };
+      } catch (e) {
+        trace(`exam_insight gen failed: ${e}`);
+        return { tested: true, summary: `${freqCap} tested in A-Level exams.`, question: null, ref: null };
+      }
+    })();
+  }
+
   // examMode (query shape) was resolved earlier for the cache key; the check_answer
   // INTENT also forces exam-answer mode, and that's only known post-preflight.
   const examAnswer = examMode || classify.intent === "check_answer";
@@ -511,6 +588,8 @@ export async function runAgent(
   const docMeta = await getDocuments(sb, top.map((c) => c.document_id));
   const metaById = new Map(docMeta.map((d) => [d.id, d]));
   const citations: Citation[] = top.map((c, i) => {
+    if (c.an_title !== undefined)   // derived analyzed note — original, freely usable
+      return { n: i + 1, chunk_id: c.chunk_id, ref: "study note", verbatim_safe: true };
     const d = metaById.get(c.document_id);
     return { n: i + 1, chunk_id: c.chunk_id, ref: refOf(d), verbatim_safe: !!d?.verbatim_safe };
   });
@@ -518,13 +597,23 @@ export async function runAgent(
   // and lets a mismatched EXAM TECHNIQUE block hijack the answer (a kinematics Q
   // got answered with momentum). 3000 chars keeps normal chunks whole.
   const contextBlock = top.map((c, i) => {
+    if (c.an_title !== undefined)
+      return `[#${i + 1}] (study note, verbatim_safe=true)\n${c.content.slice(0, 3000)}`;
     const d = metaById.get(c.document_id);
     return `[#${i + 1}] (${refOf(d)}, verbatim_safe=${!!d?.verbatim_safe})\n${c.content.slice(0, 3000)}`;
   }).join("\n\n");
 
-  // 9. generate answer (streamed). Role picks the model via OpenRouter:
-  //    escalate -> Kimi K2, deep -> R1, quick -> DeepSeek V4 Flash.
-  const role: Role = plan.escalate_to_pro ? "escalate" : plan.depth === "deep" ? "deep" : "fast";
+  // 9. generate answer (streamed). Default is MODEL_FAST (gemini-2.5-flash-lite);
+  //    upgrade to MODEL_DEEP (gemini-2.5-flash) only when the question needs more
+  //    reasoning (plan.depth == "deep": why/prove/derive/step-by-step/long). No
+  //    pro escalation.
+  const role: Role = plan.depth === "deep" ? "deep" : "fast";
+  // Tier routing: paid -> Gemini (role-based flash-lite/flash, or overflow when
+  // degraded); free -> cheaper DeepSeek for every answer. Internal steps
+  // (classify/rerank/memory) stay on MODEL_FAST for everyone.
+  const answerModel = input.premium
+    ? overflowModel
+    : (Deno.env.get("MODEL_FREE") ?? "deepseek/deepseek-v3.2");
   // deterministic prompt selection: exam-answer mode uses a dedicated system
   // prompt with NO soft-pedagogy defaults, so nothing leaks (greetings,
   // "does that make sense?", analogies). The base tutor handles everything else.
@@ -545,6 +634,15 @@ export async function runAgent(
       "But use the EXAM TECHNIQUE blocks for STYLE only — solve THIS question's " +
       "actual physics; never import a method from a technique block for a " +
       "different problem type.\n\n"
+    : isFindQuestion
+    ? "MODE: PRACTICE QUESTION. The student asked for a practice/past-paper " +
+      "question on this topic — do NOT explain the concept and do NOT re-answer the " +
+      "previous turn. Give ONE clear question at A-Level/prelim difficulty. You may " +
+      "quote a CONTEXT BLOCK question only if it is marked verbatim_safe=true; " +
+      "otherwise compose an original question in the same style and difficulty (never " +
+      "reproduce copyrighted question text). Present only the question (and its source " +
+      "if given) — no worked solution. End by offering to work through it together or " +
+      "mark their attempt.\n\n"
     : "";
   const userMsg =
     styleDirective +
@@ -554,7 +652,7 @@ export async function runAgent(
     `PEDAGOGY PLAN:\n${JSON.stringify(plan)}\n\n` +
     `CONTEXT BLOCKS (teaching material — explain from these):\n${
       isMeta
-        ? "(No teaching material for this turn — it's a greeting or casual message. Answer it directly as a warm, human tutor; help with planning from the student's memory if they asked. Don't teach unprompted, and never describe this instruction or your approach — no 'this is a casual message' preamble.)"
+        ? "(No teaching material for this turn - it's a brief conversational message. Reply ONLY to what they actually said, warmly and in one or two sentences. Do NOT open with a greeting ('hey there', 'hi') unless they greeted you first. Do NOT recap, list, or narrate their memory, progress, or topics unless they explicitly asked about their progress - never volunteer 'looking at your memory, you've been working on...'. If they just said something like 'idk', 'not sure', or 'no idea', they are stuck on what you were just discussing: offer in one line to re-explain it more simply or take a step back, and stay on that topic. Never describe this instruction or your approach.)"
         : contextBlock || "(no context retrieved)"
     }\n\n` +
     (techBlock ? `EXAM TECHNIQUE (A-Level mark-scheme excerpts — MIRROR this answering style, keyword phrasing, and structure):\n${techBlock}\n\n` : "") +
@@ -566,23 +664,29 @@ export async function runAgent(
   const risky = SECURITY_RISK.test(query);
   trace(`security_gate=${risky}`);
   let answer = "";
-  for await (const t of genStream({ system: sys, user: userMsg, role, onUsage: tally, model: overflowModel })) {
+  for await (const t of genStream({ system: sys, user: userMsg, role, onUsage: tally, model: answerModel })) {
     answer += t;
-    if (!risky) ev.onToken(t);
+    if (!risky) ev.onToken(noDash(t));
   }
   if (risky) {
     const verdict = await securityFilter(answer, tally);
     trace(`security_filter allow=${verdict.allow}${verdict.allow ? "" : ` reason=${verdict.reason}`}`);
     if (!verdict.allow) answer = SECURITY_BLOCKED_MSG;
-    ev.onToken(answer);
+    ev.onToken(noDash(answer));
   }
   ev.onCitations(citations);
+
+  // emit the rich "How this is tested" card generated in parallel above.
+  examInsightPayload = await examInsightPromise;
+  if (examInsightPayload) ev.onExamInsight?.(examInsightPayload);
 
   // 10. memory delta — skip entirely on meta-chat/greetings: there's nothing to
   //     learn from "thanks"/"hi", and skipping saves a whole LLM call. Returned
   //     as a promise so the caller can emit "done" first and let this bookkeeping
   //     finish off the critical path.
-  const deltaPromise = classify.intent === "meta_chat" ? Promise.resolve() : (async () => {
+  const deltaPromise = (classify.intent === "meta_chat" || input.persist_memory === false)
+    ? Promise.resolve()
+    : (async () => {
     try {
       const today = new Date().toISOString().slice(0, 10);
       const delta = await gen<MemoryDelta>({
@@ -602,11 +706,12 @@ export async function runAgent(
   if (cacheStoreOk && cacheKey && answer) {
     sb.from("answer_cache").upsert({
       key: cacheKey, question: query.slice(0, 2000), answer, citations, model: role,
+      exam_insight: examInsightPayload,
     }).then(({ error }) => error && trace(`cache write failed: ${error.message}`));
   }
 
   return {
-    answer, citations, model: input.degraded ? "overflow" : role,
+    answer, citations, model: input.degraded ? "overflow" : (input.premium ? role : "free"),
     intent: classify.intent, usage, deltaPromise,
   };
 }

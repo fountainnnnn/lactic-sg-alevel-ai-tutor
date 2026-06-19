@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -20,6 +21,8 @@ class ChatService {
     String? subjectHint,
     String? levelHint,
     String? deviceId,
+    String? imagePath, // storage path under uploads/ — triggers backend OCR
+    bool premium = false,
   }) async* {
     final token =
         Supabase.instance.client.auth.currentSession?.accessToken ??
@@ -37,12 +40,22 @@ class ChatService {
       'message': message,
       'memory_md': memoryMd,
       'history': history,
+      if (imagePath != null) 'image_path': imagePath,
       if (answerStyle != null) 'answer_style': answerStyle,
       if (subjectHint != null) 'subject_hint': subjectHint,
       if (levelHint != null) 'level_hint': levelHint,
+      'premium': premium,
     });
 
-    final resp = await _client.send(req);
+    final http.StreamedResponse resp;
+    try {
+      // connect timeout: don't leave the user hanging if the backend never
+      // responds to the request headers.
+      resp = await _client.send(req).timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      yield const ErrorEvent('Could not reach the tutor. Check your connection and try again.');
+      return;
+    }
     if (resp.statusCode == 429 || resp.statusCode == 503) {
       final body = await resp.stream.bytesToString();
       yield ErrorEvent(_msgFrom(body, resp.statusCode));
@@ -55,22 +68,30 @@ class ChatService {
     }
 
     // Parse the SSE stream: lines `event: X` then `data: {...}`, blank-separated.
+    // idle timeout: resets on every line, so it fires only when the backend goes
+    // silent mid-answer (no blinking-caret-forever).
     var event = '';
     final buffer = StringBuffer();
-    await for (final line
-        in resp.stream.transform(utf8.decoder).transform(const LineSplitter())) {
-      if (line.startsWith('event:')) {
-        event = line.substring(6).trim();
-      } else if (line.startsWith('data:')) {
-        buffer.write(line.substring(5).trim());
-      } else if (line.isEmpty) {
-        final data = buffer.toString();
-        buffer.clear();
-        if (data.isEmpty) continue;
-        final parsed = _parse(event, data);
-        if (parsed != null) yield parsed;
-        event = '';
+    try {
+      await for (final line in resp.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .timeout(const Duration(seconds: 60))) {
+        if (line.startsWith('event:')) {
+          event = line.substring(6).trim();
+        } else if (line.startsWith('data:')) {
+          buffer.write(line.substring(5).trim());
+        } else if (line.isEmpty) {
+          final data = buffer.toString();
+          buffer.clear();
+          if (data.isEmpty) continue;
+          final parsed = _parse(event, data);
+          if (parsed != null) yield parsed;
+          event = '';
+        }
       }
+    } on TimeoutException {
+      yield const ErrorEvent('The tutor took too long to respond. Please try again.');
     }
   }
 
@@ -93,6 +114,8 @@ class ChatService {
         return ClarifyEvent((j['question'] ?? '').toString());
       case 'memory_delta':
         return MemoryDeltaEvent(j);
+      case 'exam_insight':
+        return ExamInsightEvent(ExamInsight.fromJson(j));
       case 'done':
         return DoneEvent(
             conversationId: j['conversation_id']?.toString(), model: j['model']?.toString());
@@ -110,7 +133,7 @@ class ChatService {
     } catch (_) {
       return status == 429
           ? "You've reached today's questions. Back in a few hours."
-          : "JCAI is taking a short break. Try again soon.";
+          : "Lactic is taking a short break. Try again soon.";
     }
   }
 }

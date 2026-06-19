@@ -90,7 +90,7 @@ export function memoryBrief(m: ParsedMemory): string {
 
 /** Apply a delta to raw memory.md, returning updated markdown (8KB-capped). */
 export function applyDelta(md: string, delta: MemoryDelta): string {
-  let out = md || "# JCAI Memory\n";
+  let out = md || "# Lactic Memory\n";
   const ensure = (h: string) => {
     if (!out.includes(`## ${h}`)) out += `\n\n## ${h}\n`;
   };

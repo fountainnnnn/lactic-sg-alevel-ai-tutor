@@ -1,4 +1,4 @@
-// Shared LLM + embedding clients for JCAI Edge Functions (Deno).
+// Shared LLM + embedding clients for Lactic Edge Functions (Deno).
 // Generation: OpenRouter (multi-model, auto provider failover).
 // Embeddings: Voyage. OCR: a vision model via OpenRouter.
 
@@ -13,6 +13,14 @@ const MODEL_ESCALATE = Deno.env.get("MODEL_ESCALATE") ?? "moonshotai/kimi-k2";  
 const MODEL_VISION = Deno.env.get("MODEL_VISION") ?? "qwen/qwen2.5-vl-72b-instruct"; // OCR
 
 const OR_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+// Network timeouts. Without these a hung upstream (OpenRouter/Voyage stops
+// responding without closing the socket) pins the Edge Function until the
+// platform's ~minutes-long ceiling, leaving the user on an endless spinner.
+const GEN_TIMEOUT_MS = 60_000;      // non-streaming generation, per attempt
+const STREAM_CONNECT_MS = 30_000;   // time to first byte for a streamed response
+const STREAM_IDLE_MS = 45_000;      // max gap between streamed chunks
+const EMBED_TIMEOUT_MS = 15_000;    // embedding call, per attempt
 
 export type Role = "fast" | "deep" | "escalate";
 
@@ -66,7 +74,7 @@ function orHeaders() {
     authorization: `Bearer ${OPENROUTER_KEY}`,
     "content-type": "application/json",
     "HTTP-Referer": "https://jcai.app",
-    "X-Title": "JCAI",
+    "X-Title": "Lactic",
   };
 }
 
@@ -85,7 +93,21 @@ export async function gen<T = string>(o: GenOpts, retries = 3): Promise<T> {
   };
   let lastErr = "";
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const r = await fetch(OR_URL, { method: "POST", headers: orHeaders(), body: JSON.stringify(body) });
+    let r: Response;
+    try {
+      r = await fetch(OR_URL, {
+        method: "POST", headers: orHeaders(), body: JSON.stringify(body),
+        signal: AbortSignal.timeout(GEN_TIMEOUT_MS),
+      });
+    } catch (e) {
+      // timeout / network error — retry with backoff, then give up
+      lastErr = `fetch failed: ${e}`;
+      if (attempt < retries) {
+        await new Promise((res) => setTimeout(res, 2 ** attempt * 1000));
+        continue;
+      }
+      throw new Error(`openrouter unreachable: ${lastErr}`);
+    }
     if (r.status === 429 || r.status >= 500) {
       lastErr = `${r.status}: ${await r.text()}`;
       const ra = Number(r.headers.get("retry-after")) || 2 ** attempt;
@@ -118,17 +140,32 @@ export async function* genStream(o: GenOpts): AsyncGenerator<string> {
   const model = o.model ?? modelFor(o.role ?? "fast");
   let r: Response | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
-    r = await fetch(OR_URL, {
-      method: "POST",
-      headers: orHeaders(),
-      body: JSON.stringify({
-        model, messages: buildMessages(o), temperature: 0.3, stream: true,
-        usage: { include: true }, // usage arrives on the final SSE chunk
-        // web plugin: OpenRouter runs the search and injects cited results.
-        // Only ever set when the student has explicitly consented this turn.
-        ...(o.web ? { plugins: [{ id: "web", max_results: 5 }] } : {}),
-      }),
-    });
+    // connect timeout via Promise.race rather than AbortSignal: aborting the
+    // signal would also tear down the response BODY, cutting long answers. We
+    // only want to bail if the connection itself never establishes.
+    try {
+      r = await Promise.race([
+        fetch(OR_URL, {
+          method: "POST",
+          headers: orHeaders(),
+          body: JSON.stringify({
+            model, messages: buildMessages(o), temperature: 0.3, stream: true,
+            usage: { include: true }, // usage arrives on the final SSE chunk
+            // web plugin: OpenRouter runs the search and injects cited results.
+            // Only ever set when the student has explicitly consented this turn.
+            ...(o.web ? { plugins: [{ id: "web", max_results: 5 }] } : {}),
+          }),
+        }),
+        new Promise<Response>((_, rej) =>
+          setTimeout(() => rej(new Error("connect timeout")), STREAM_CONNECT_MS)),
+      ]);
+    } catch (_) {
+      if (attempt < 2) {
+        await new Promise((res) => setTimeout(res, 2 ** attempt * 1000));
+        continue;
+      }
+      throw new Error("genStream: connection timed out");
+    }
     if (r.ok && r.body) break;
     if (r.status === 429 || r.status >= 500) {
       const ra = Number(r.headers.get("retry-after")) || 2 ** attempt;
@@ -140,23 +177,35 @@ export async function* genStream(o: GenOpts): AsyncGenerator<string> {
   if (!r || !r.ok || !r.body) throw new Error(`genStream ${r?.status}: ${await r?.text()}`);
   const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += value;
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (payload === "[DONE]") return;
-      try {
-        const j = JSON.parse(payload);
-        if (j.usage) reportUsage(o, j.usage);
-        const t = j.choices?.[0]?.delta?.content ?? "";
-        if (t) yield t;
-      } catch { /* keepalive / partial */ }
+  try {
+    while (true) {
+      // idle timeout: bail if no chunk arrives for STREAM_IDLE_MS (upstream hung
+      // mid-answer). Resets implicitly each loop since we re-race per read.
+      const step = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("stream idle timeout")), STREAM_IDLE_MS)),
+      ]);
+      const { value, done } = step as ReadableStreamReadResult<string>;
+      if (done) break;
+      buf += value;
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = line.slice(6).trim();
+        if (payload === "[DONE]") return;
+        try {
+          const j = JSON.parse(payload);
+          if (j.usage) reportUsage(o, j.usage);
+          const t = j.choices?.[0]?.delta?.content ?? "";
+          if (t) yield t;
+        } catch { /* keepalive / partial */ }
+      }
     }
+  } finally {
+    // free the upstream connection on idle-timeout / early return / caller break
+    try { await reader.cancel(); } catch { /* already closed */ }
   }
 }
 
@@ -173,14 +222,25 @@ export async function voyageEmbed(
 ): Promise<number[]> {
   let lastErr = "";
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const r = await fetch("https://api.voyageai.com/v1/embeddings", {
-      method: "POST",
-      headers: { authorization: `Bearer ${VOYAGE_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        input: [text], model: "voyage-3.5-lite",
-        input_type: inputType, output_dimension: 1024,
-      }),
-    });
+    let r: Response;
+    try {
+      r = await fetch("https://api.voyageai.com/v1/embeddings", {
+        method: "POST",
+        headers: { authorization: `Bearer ${VOYAGE_KEY}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          input: [text], model: "voyage-3.5-lite",
+          input_type: inputType, output_dimension: 1024,
+        }),
+        signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+      });
+    } catch (e) {
+      lastErr = `fetch failed: ${e}`;
+      if (attempt < retries) {
+        await new Promise((res) => setTimeout(res, 2 ** attempt * 500));
+        continue;
+      }
+      throw new Error(`voyage unreachable: ${lastErr}`);
+    }
     if (r.status === 429 || r.status >= 500) {
       lastErr = `${r.status}`;
       await new Promise((res) => setTimeout(res, 2 ** attempt * 500));

@@ -12,16 +12,39 @@ class Citation {
       );
 }
 
+/// "How this is tested" — whether the concept appears in prelim/past-year papers,
+/// and one representative real question (with its paper reference) to show.
+class ExamInsight {
+  final bool tested;
+  final String summary; // e.g. "Frequently examined in Singapore prelims."
+  final String? question; // one real prelim question, verbatim
+  final String? questionRef; // e.g. "H2 Chemistry 2022 Prelim"
+  ExamInsight({required this.tested, this.summary = '', this.question, this.questionRef});
+
+  factory ExamInsight.fromJson(Map<String, dynamic> j) {
+    final q = (j['question'] ?? '').toString().trim();
+    final r = (j['ref'] ?? j['question_ref'] ?? '').toString().trim();
+    return ExamInsight(
+      tested: (j['tested'] ?? false) == true,
+      summary: (j['summary'] ?? '').toString().trim(),
+      question: q.isEmpty ? null : q,
+      questionRef: r.isEmpty ? null : r,
+    );
+  }
+}
+
 /// One chat turn shown in the thread.
 class ChatMessage {
   final String role; // 'user' | 'assistant'
   String content;
   List<Citation> citations;
+  ExamInsight? examInsight;
   final bool streaming;
   ChatMessage({
     required this.role,
     this.content = '',
     List<Citation>? citations,
+    this.examInsight,
     this.streaming = false,
   }) : citations = citations ?? [];
 }
@@ -49,6 +72,11 @@ class ClarifyEvent extends ChatEvent {
 class MemoryDeltaEvent extends ChatEvent {
   final Map<String, dynamic> delta;
   const MemoryDeltaEvent(this.delta);
+}
+
+class ExamInsightEvent extends ChatEvent {
+  final ExamInsight insight;
+  const ExamInsightEvent(this.insight);
 }
 
 class DoneEvent extends ChatEvent {

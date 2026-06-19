@@ -1,100 +1,373 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/tokens.dart';
+import '../../state/app_state.dart';
+import 'plans.dart';
 
-class PremiumScreen extends StatelessWidget {
+class PremiumScreen extends ConsumerStatefulWidget {
   const PremiumScreen({super.key});
 
-  static const _features = [
-    (Icons.fact_check_outlined, 'Answer Feedback', 'Your work checked against real mark schemes.'),
-    (Icons.track_changes_rounded, 'Weak-spot drilling', 'Targeted prelim questions tailored to you.'),
-    (Icons.insights_rounded, 'Mastery tracking', 'See your progress across every subject.'),
-    (Icons.photo_camera_outlined, 'Photo uploads', 'Snap a question for instant help.'),
-    (Icons.bolt_rounded, 'Unlimited, faster', 'No daily limits, priority answers.'),
-  ];
+  @override
+  ConsumerState<PremiumScreen> createState() => _PremiumScreenState();
+}
+
+class _PremiumScreenState extends ConsumerState<PremiumScreen> {
+  Tier _tier = Subscriptions.plus; // entry tier selected by default
+  Billing _billing = Billing.monthly; // default to the smaller monthly price
+  bool _busy = false;
+
+  /// Present the RevenueCat-hosted paywall (the offering is configured in the RC
+  /// dashboard). On a successful purchase/restore, pop back — `premiumProvider`
+  /// flips automatically from the customer-info listener.
+  Future<void> _openPaywall() async {
+    setState(() => _busy = true);
+    final entitled = await ref.read(purchasesServiceProvider).presentPaywall();
+    await ref.read(customerInfoProvider.notifier).refresh();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (entitled) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('You\'re all set. Welcome!')));
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  Future<void> _restore() async {
+    setState(() => _busy = true);
+    await ref.read(purchasesServiceProvider).restore();
+    await ref.read(customerInfoProvider.notifier).refresh();
+    if (!mounted) return;
+    final restored = ref.read(premiumProvider);
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(restored
+            ? 'Purchases restored.'
+            : 'No previous purchases to restore.')));
+    if (restored) Navigator.of(context).maybePop();
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final plan = _tier.plan(_billing);
     return Scaffold(
-      appBar: AppBar(title: const Text('Premium')),
+      appBar: AppBar(title: const Text('Go Premium'), centerTitle: true),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           children: [
-            Center(
-              child: Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(18)),
-                child: Icon(Icons.workspace_premium_rounded, size: 34, color: t.onPrimarySoft),
+            // Hero card
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              decoration: BoxDecoration(
+                color: t.primarySoft,
+                borderRadius: BorderRadius.circular(20),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text('Unlock Premium', textAlign: TextAlign.center, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 6),
-            Text('Go beyond answers, get exam-ready with targeted feedback.',
-                textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, height: 1.5)),
-            const SizedBox(height: 18),
-            Center(
-              child: RichText(
-                text: TextSpan(style: theme.textTheme.bodyLarge, children: [
-                  TextSpan(text: 'S\$8.90', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 30, color: theme.colorScheme.primary)),
-                  TextSpan(text: ' / month', style: TextStyle(color: t.textMuted)),
-                ]),
-              ),
-            ),
-            const SizedBox(height: 22),
-            ..._features.map((f) => Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: t.border),
+              child: Column(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(color: scheme.primary, borderRadius: BorderRadius.circular(20)),
+                    child: Icon(Icons.workspace_premium_rounded, size: 34, color: scheme.onPrimary),
                   ),
-                  child: Row(children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(color: t.primarySoft, shape: BoxShape.circle),
-                      child: Icon(f.$1, size: 20, color: t.onPrimarySoft),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(f.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
-                          Text(f.$3, style: TextStyle(color: t.textMuted, fontSize: 12.5, height: 1.35)),
-                        ],
-                      ),
-                    ),
-                  ]),
-                )),
-            const SizedBox(height: 8),
-            FilledButton(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('In-app purchases are coming soon.'))),
-              child: const Text('Go Premium'),
+                  const SizedBox(height: 16),
+                  Text('Choose your plan',
+                      style: theme.textTheme.titleLarge?.copyWith(color: t.onPrimarySoft)),
+                  const SizedBox(height: 6),
+                  Text('Cancel anytime.', style: TextStyle(color: t.textMuted)),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
-            OutlinedButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Maybe later')),
+            const SizedBox(height: 20),
+            // Billing period toggle
+            _BillingToggle(
+              billing: _billing,
+              tokens: t,
+              onChanged: (b) => setState(() => _billing = b),
+            ),
+            const SizedBox(height: 14),
+            // Tier selector — Plus / Unlimited
+            for (final tier in Subscriptions.tiers) ...[
+              _TierCard(
+                tier: tier,
+                plan: tier.plan(_billing),
+                selected: _tier.name == tier.name,
+                onTap: () => setState(() => _tier = tier),
+                tokens: t,
+              ),
+              const SizedBox(height: 10),
+            ],
             const SizedBox(height: 6),
-            TextButton(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('No previous purchases to restore.'))),
-              child: const Text('Restore purchases'),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 8),
+              child: Text("What's included in ${_tier.name}",
+                  style: TextStyle(color: t.textMuted, fontSize: 13, fontWeight: FontWeight.w700)),
+            ),
+            // Feature list — checks reflect the SELECTED tier; locked rows show
+            // the tier that unlocks them.
+            Container(
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: t.border),
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < Subscriptions.features.length; i++) ...[
+                    if (i > 0) Divider(height: 1, color: t.border),
+                    _FeatureRow(feature: Subscriptions.features[i], selectedRank: _tier.rank),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: _busy ? null : _openPaywall,
+              child: _busy
+                  ? const SizedBox(
+                      width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text('Get ${_tier.name} for ${plan.price}${plan.period}'),
             ),
             const SizedBox(height: 8),
-            Center(
-              child: Text('Recurring billing. Cancel anytime in your app store settings.',
-                  textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, fontSize: 11.5)),
+            TextButton(
+              onPressed: _busy ? null : _restore,
+              child: const Text('Restore purchases'),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Segmented Monthly / Annual switch. Annual carries a small "2 months free" hint.
+class _BillingToggle extends StatelessWidget {
+  final Billing billing;
+  final AppTokens tokens;
+  final ValueChanged<Billing> onChanged;
+  const _BillingToggle({required this.billing, required this.tokens, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget seg(String label, Billing value, {String? badge}) {
+      final on = billing == value;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => onChanged(value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: on ? scheme.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: on ? scheme.onPrimary : tokens.textMuted)),
+                if (badge != null) ...[
+                  const SizedBox(width: 6),
+                  Text(badge,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: on ? scheme.onPrimary.withValues(alpha: 0.85) : scheme.primary)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: tokens.surfaceMuted,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(children: [
+        seg('Monthly', Billing.monthly),
+        seg('Annual', Billing.annual, badge: '2 months free'),
+      ]),
+    );
+  }
+}
+
+/// One selectable subscription tier showing its price for the chosen billing
+/// period, with a radio-style state and an optional savings badge.
+class _TierCard extends StatelessWidget {
+  final Tier tier;
+  final Plan plan;
+  final bool selected;
+  final VoidCallback onTap;
+  final AppTokens tokens;
+  const _TierCard({
+    required this.tier,
+    required this.plan,
+    required this.selected,
+    required this.onTap,
+    required this.tokens,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: selected ? tokens.primarySoft : scheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? scheme.primary : tokens.border,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                color: selected ? scheme.primary : tokens.textMuted,
+                size: 22,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tier.name,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                    const SizedBox(height: 2),
+                    Text('${tier.dailyCap} questions a day',
+                        style: TextStyle(color: scheme.primary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 1),
+                    Text(tier.tagline, style: TextStyle(color: tokens.textMuted, fontSize: 12.5)),
+                    if (plan.note != null) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(plan.note!,
+                            style: TextStyle(
+                                color: scheme.onPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (plan.wasPrice != null)
+                    Text(plan.wasPrice!,
+                        style: TextStyle(
+                            color: tokens.textMuted,
+                            fontSize: 12.5,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: tokens.textMuted)),
+                  Text.rich(TextSpan(children: [
+                    TextSpan(
+                      text: plan.price,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 20, color: scheme.primary),
+                    ),
+                    TextSpan(text: plan.period, style: TextStyle(color: tokens.textMuted, fontSize: 13)),
+                  ])),
+                  if (plan.wasPrice != null)
+                    Text('Launch price',
+                        style: TextStyle(
+                            color: scheme.primary, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A feature row whose check/lock reflects the currently selected tier. Rows the
+/// selected tier doesn't include show a muted lock plus the tier that unlocks it.
+class _FeatureRow extends StatelessWidget {
+  final Feature feature;
+  final int selectedRank;
+  const _FeatureRow({required this.feature, required this.selectedRank});
+
+  static String _tierName(int rank) => switch (rank) {
+        1 => 'Lite',
+        2 => 'Plus',
+        3 => 'Max',
+        _ => 'Free',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final scheme = Theme.of(context).colorScheme;
+    final included = selectedRank >= feature.minRank;
+    final tag = feature.minRank == 0 ? '(free)' : '${_tierName(feature.minRank)}+';
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: included ? scheme.primary : t.surfaceMuted,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(included ? Icons.check_rounded : Icons.lock_outline_rounded,
+                size: 15, color: included ? scheme.onPrimary : t.textMuted),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Flexible(child: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5))),
+                    const SizedBox(width: 8),
+                    Text(tag,
+                        style: TextStyle(
+                            color: included ? scheme.primary : t.textMuted,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(feature.desc, style: TextStyle(color: t.textMuted, fontSize: 13.5, height: 1.4)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

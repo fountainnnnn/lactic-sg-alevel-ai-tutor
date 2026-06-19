@@ -35,11 +35,11 @@ class FF {
   static const dangerL = Color(0xFFDC2626);
   static const dangerD = Color(0xFFF87171);
 
-  // radii
-  static const rCard = 16.0;
-  static const rButton = 14.0;
-  static const rField = 14.0;
-  static const rBubble = 18.0;
+  // radii — generous, iOS-like rounding
+  static const rCard = 22.0;
+  static const rButton = 18.0;
+  static const rField = 16.0;
+  static const rBubble = 24.0;
 }
 
 /// Extra brand tokens not covered by [ColorScheme], exposed via theme so widgets

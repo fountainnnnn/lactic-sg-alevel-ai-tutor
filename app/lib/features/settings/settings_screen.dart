@@ -9,77 +9,88 @@ import '../../state/app_state.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
+  void _pickAnswerStyle(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(settingsProvider.notifier);
+    final current = ref.read(settingsProvider).answerStyle;
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final o in const [('direct', 'Just answer', 'Leads with the answer.'), ('coach', 'Guide me', 'Walks you through it step by step.')])
+              ListTile(
+                title: Text(o.$2, style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text(o.$3),
+                trailing: current == o.$1
+                    ? Icon(Icons.check_rounded, color: Theme.of(ctx).colorScheme.primary)
+                    : null,
+                onTap: () {
+                  notifier.setAnswerStyle(o.$1);
+                  Navigator.of(ctx).pop();
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
     final notifier = ref.read(settingsProvider.notifier);
     final signedIn = Supabase.instance.client.auth.currentSession != null;
+    final answerLabel = settings.answerStyle == 'coach' ? 'Guide me' : 'Just answer';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Settings'), centerTitle: true),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
           children: [
-            _Card(
+            _Section(
               label: 'Appearance',
-              children: [
-                _Segmented<ThemeMode>(
-                  value: settings.themeMode,
-                  options: const [
-                    (ThemeMode.system, 'System'),
-                    (ThemeMode.light, 'Light'),
-                    (ThemeMode.dark, 'Dark'),
-                  ],
-                  onChanged: notifier.setThemeMode,
-                ),
-              ],
+              child: _ThemePicker(value: settings.themeMode, onChanged: notifier.setThemeMode),
             ),
-            _Card(
-              label: 'Tutor preferences',
-              children: [
-                const _RowTitle('Default answer style'),
-                const SizedBox(height: 10),
-                _Segmented<String>(
-                  value: settings.answerStyle,
-                  options: const [('direct', 'Just answer'), ('coach', 'Guide me')],
-                  onChanged: notifier.setAnswerStyle,
-                ),
-                const SizedBox(height: 10),
-                const _Hint('Just answer leads with the answer. Guide me walks you through it.'),
-              ],
+            _Section(
+              label: 'Preferences',
+              tight: true,
+              child: Column(children: [
+                _NavRow(label: 'Notifications', onTap: () => context.push('/notifications')),
+                _Divider(),
+                _NavRow(label: 'Default answer style', value: answerLabel, onTap: () => _pickAnswerStyle(context, ref)),
+              ]),
             ),
-            _Card(
+            _Section(
               label: 'Account',
               tight: true,
-              children: [
-                const _Row(icon: Icons.workspace_premium_outlined, label: 'JCAI Premium', route: '/premium'),
-                const _Row(icon: Icons.person_outline_rounded, label: 'Edit profile', route: '/edit-profile'),
-                const _Row(icon: Icons.notifications_none_rounded, label: 'Notifications', route: '/notifications'),
-                if (signedIn)
-                  _Row(
-                    icon: Icons.logout_rounded,
-                    label: 'Sign out',
-                    onTap: () => Supabase.instance.client.auth.signOut(),
-                  )
-                else
-                  const _Row(icon: Icons.login_rounded, label: 'Sign in', route: '/signin'),
-              ],
+              child: Column(children: [
+                _NavRow(label: 'Manage Subscription', onTap: () => context.push('/subscription')),
+                _Divider(),
+                _NavRow(label: 'Privacy', onTap: () => context.push('/privacy')),
+                _Divider(),
+                _NavRow(label: 'Help', onTap: () => context.push('/help')),
+                _Divider(),
+                _NavRow(label: 'About', onTap: () => context.push('/about')),
+              ]),
             ),
-            const _Card(
-              label: 'More',
+            _Section(
               tight: true,
-              children: [
-                _Row(icon: Icons.help_outline_rounded, label: 'Help & FAQ', route: '/help'),
-                _Row(icon: Icons.lock_outline_rounded, label: 'Privacy Policy', route: '/privacy'),
-                _Row(icon: Icons.description_outlined, label: 'Terms & Conditions', route: '/terms'),
-                _Row(icon: Icons.info_outline_rounded, label: 'About JCAI', route: '/about'),
-                _Row(icon: Icons.delete_outline_rounded, label: 'Delete account', route: '/delete-account', danger: true),
-              ],
+              child: Column(children: [
+                if (signedIn)
+                  _NavRow(label: 'Sign out', icon: Icons.logout_rounded, onTap: () => Supabase.instance.client.auth.signOut())
+                else
+                  _NavRow(label: 'Sign in', icon: Icons.login_rounded, onTap: () => context.push('/signin')),
+                _Divider(),
+                _NavRow(label: 'Delete account', icon: Icons.delete_outline_rounded, danger: true, onTap: () => context.push('/delete-account')),
+              ]),
             ),
             const SizedBox(height: 18),
             Center(
-              child: Text('JCAI · v1.0.0',
+              child: Text('Lactic · v1.0.0',
                   style: TextStyle(color: context.tokens.textMuted, fontSize: 12, fontWeight: FontWeight.w600)),
             ),
           ],
@@ -89,12 +100,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-/// A grouped settings section: uppercase label + a bordered surface card.
-class _Card extends StatelessWidget {
-  final String label;
-  final List<Widget> children;
-  final bool tight; // tight = list rows (no inner padding); else padded content
-  const _Card({required this.label, required this.children, this.tight = false});
+class _Section extends StatelessWidget {
+  final String? label;
+  final Widget child;
+  final bool tight;
+  const _Section({this.label, required this.child, this.tight = false});
 
   @override
   Widget build(BuildContext context) {
@@ -104,20 +114,24 @@ class _Card extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Text(label.toUpperCase(),
-                style: TextStyle(color: t.textMuted, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
-          ),
+          if (label != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 8),
+              child: Text(label!.toUpperCase(),
+                  style: TextStyle(color: t.textMuted, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+            ),
           Container(
             width: double.infinity,
+            clipBehavior: Clip.antiAlias,
             padding: tight ? const EdgeInsets.symmetric(horizontal: 6) : const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(FF.rCard),
               border: Border.all(color: t.border),
             ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+            // Transparent Material so list-tile ripples paint over the card
+            // instead of being hidden by its background color.
+            child: Material(type: MaterialType.transparency, child: child),
           ),
         ],
       ),
@@ -125,81 +139,102 @@ class _Card extends StatelessWidget {
   }
 }
 
-class _RowTitle extends StatelessWidget {
-  final String text;
-  const _RowTitle(this.text);
+class _Divider extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
-      Text(text, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15));
+      Divider(height: 1, color: context.tokens.border, indent: 10, endIndent: 10);
 }
 
-class _Hint extends StatelessWidget {
-  final String text;
-  const _Hint(this.text);
-  @override
-  Widget build(BuildContext context) =>
-      Text(text, style: TextStyle(color: context.tokens.textMuted, fontSize: 12.5, height: 1.4));
-}
-
-class _Row extends StatelessWidget {
-  final IconData icon;
+class _NavRow extends StatelessWidget {
   final String label;
-  final String? route;
-  final VoidCallback? onTap;
+  final String? value;
+  final IconData? icon;
   final bool danger;
-  const _Row({required this.icon, required this.label, this.route, this.onTap, this.danger = false});
+  final VoidCallback onTap;
+  const _NavRow({required this.label, this.value, this.icon, this.danger = false, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final color = danger ? context.tokens.danger : null;
+    final t = context.tokens;
+    final color = danger ? t.danger : null;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-      leading: Icon(icon, color: color, size: 22),
-      title: Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
-      trailing: Icon(Icons.chevron_right_rounded, size: 20, color: context.tokens.textMuted),
-      onTap: onTap ?? (route != null ? () => context.push(route!) : null),
+      leading: icon != null ? Icon(icon, color: color, size: 22) : null,
+      title: Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15.5, color: color)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (value != null) Text(value!, style: TextStyle(color: t.textMuted, fontSize: 14)),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_right_rounded, size: 20, color: t.textMuted),
+        ],
+      ),
+      onTap: onTap,
     );
   }
 }
 
-/// A pill segmented control matching the chat composer's toggle.
-class _Segmented<T> extends StatelessWidget {
-  final T value;
-  final List<(T, String)> options;
-  final ValueChanged<T> onChanged;
-  const _Segmented({required this.value, required this.options, required this.onChanged});
+/// Three icon boxes: Light / Dark / System.
+class _ThemePicker extends StatelessWidget {
+  final ThemeMode value;
+  final ValueChanged<ThemeMode> onChanged;
+  const _ThemePicker({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    const opts = [
+      (ThemeMode.light, Icons.light_mode_outlined, 'Light'),
+      (ThemeMode.dark, Icons.dark_mode_outlined, 'Dark'),
+      (ThemeMode.system, Icons.desktop_windows_outlined, 'System'),
+    ];
+    return Row(
+      children: [
+        for (var i = 0; i < opts.length; i++) ...[
+          if (i > 0) const SizedBox(width: 12),
+          Expanded(child: _ThemeBox(
+            selected: value == opts[i].$1,
+            icon: opts[i].$2,
+            label: opts[i].$3,
+            onTap: () => onChanged(opts[i].$1),
+          )),
+        ],
+      ],
+    );
+  }
+}
+
+class _ThemeBox extends StatelessWidget {
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _ThemeBox({required this.selected, required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: t.surfaceMuted, borderRadius: BorderRadius.circular(999)),
-      child: Row(
-        children: options.map((o) {
-          final on = o.$1 == value;
-          return Expanded(
-            child: GestureDetector(
-              onTap: () => onChanged(o.$1),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                decoration: BoxDecoration(
-                  color: on ? scheme.surface : Colors.transparent,
-                  borderRadius: BorderRadius.circular(999),
-                  border: on ? Border.all(color: t.border) : null,
-                ),
-                child: Text(o.$2,
-                    style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.5,
-                        color: on ? scheme.primary : t.textMuted)),
-              ),
-            ),
-          );
-        }).toList(),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: selected ? t.primarySoft : t.surfaceMuted,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: selected ? scheme.primary : Colors.transparent, width: 1.5),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 24, color: selected ? t.onPrimarySoft : t.textMuted),
+            const SizedBox(height: 8),
+            Text(label,
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                    color: selected ? t.onPrimarySoft : t.textMuted)),
+          ],
+        ),
       ),
     );
   }

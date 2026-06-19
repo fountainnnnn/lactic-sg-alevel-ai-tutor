@@ -54,7 +54,7 @@ def llm_json(system: str, user: str, *, max_retries: int = 3) -> dict:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
         "HTTP-Referer": "https://jcai.app",
-        "X-Title": "JCAI-ingest",
+        "X-Title": "Lactic-ingest",
     }
     last = None
     for attempt in range(max_retries):

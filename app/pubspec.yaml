@@ -1,5 +1,5 @@
-name: jcai
-description: JCAI — A-Level study tutor for Singapore JC students.
+name: lactic
+description: Lactic — A-Level study tutor for Singapore JC students.
 publish_to: "none"
 version: 0.1.0+1
 
@@ -14,18 +14,53 @@ dependencies:
   http: ^1.2.2
   google_fonts: ^6.2.1
   flutter_markdown: ^0.7.4
+  flutter_math_fork: ^0.7.2
+  markdown: ^7.2.1
+  gpt_markdown: ^1.0.0
   go_router: ^14.2.7
   shared_preferences: ^2.3.2
   path_provider: ^2.1.4
   device_info_plus: ^10.1.2
+  image_picker: ^1.1.2
+  purchases_flutter: ^10.3.0
+  purchases_ui_flutter: ^10.3.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.1
+  flutter_native_splash: ^2.4.8
 
 flutter:
   uses-material-design: true
   assets:
     - assets/illustrations/
     - assets/icon/
+    - assets/brand/
+
+flutter_launcher_icons:
+  image_path: "assets/brand/lactic_icon.png"
+  android: true
+  ios: true
+  web:
+    generate: true
+    background_color: "#6B5DE0"
+    theme_color: "#6B5DE0"
+  remove_alpha_ios: true
+  background_color_ios: "#6B5DE0"
+  adaptive_icon_background: "#6B5DE0"
+  adaptive_icon_foreground: "assets/brand/lactic_icon.png"
+
+# Native cold-start background only (matches the in-app splash bg) so the brief
+# system splash blends into the Flutter SplashScreen, which draws the full
+# icon+name lockup on one line. Android 12+ would mask a wide image, so we keep
+# the native one minimal and do the lockup in Flutter.
+flutter_native_splash:
+  color: "#FBFAFE"
+  image: assets/brand/lactic_icon.png
+  android_12:
+    # Padded 1152x1152 asset: the logo fits inside the centered 768px circle so
+    # Android 12's circular mask no longer crops/zooms it.
+    image: assets/brand/lactic_splash_android12.png
+    icon_background_color: "#FBFAFE"

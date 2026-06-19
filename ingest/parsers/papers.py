@@ -15,6 +15,7 @@ ANSWER-SIDE reproduction only (enforced by the tutor prompt), never what we inde
 from __future__ import annotations
 
 import io
+import os
 import re
 import zipfile
 from dataclasses import dataclass
@@ -89,8 +90,15 @@ def _notes_from_pdf_bytes(data: bytes, paper: int | None, meta: PaperMeta,
                           is_ms: bool) -> list[Note]:
     d = fitz.open(stream=data, filetype="pdf")
     raw = "\n".join(p.get_text() for p in d)
-    d.close()
     text = _denoise(clean_pdf_text(raw))
+    # image-only scan (no text layer) -> fall back to OCR when enabled
+    if not text and os.environ.get("JCAI_OCR") == "1":
+        if os.environ.get("JCAI_OCR_BACKEND") == "online":
+            from ..ocr_online import ocr_doc
+        else:
+            from ..ocr_local import ocr_doc
+        text = _denoise(clean_pdf_text(ocr_doc(d)))
+    d.close()
     if not text:
         return []
 

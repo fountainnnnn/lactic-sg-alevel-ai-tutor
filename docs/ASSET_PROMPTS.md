@@ -1,4 +1,4 @@
-# JCAI Onboarding & App Illustration — Prompt Pack
+# Lactic Onboarding & App Illustration — Prompt Pack
 
 Generated image assets for the **Friendly Focus** direction (light-purple +
 Baloo 2/Nunito). Onboarding is illustration-led: one warm hero per screen,

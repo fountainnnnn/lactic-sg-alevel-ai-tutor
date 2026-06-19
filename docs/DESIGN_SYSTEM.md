@@ -1,4 +1,4 @@
-# JCAI Design System — "Friendly Focus"
+# Lactic Design System — "Friendly Focus"
 
 Warm, student-friendly study tool for SG JC A-Level students — approachable and
 rounded, but credible (not childish). Light-primary with a first-class true dark

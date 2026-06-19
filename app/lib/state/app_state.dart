@@ -4,15 +4,40 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'dart:typed_data';
+
+import 'package:purchases_flutter/purchases_flutter.dart';
+
 import '../data/chat_service.dart';
 import '../data/conversation_store.dart';
 import '../data/memory_store.dart';
+import '../data/purchases_service.dart';
+import '../data/upload_service.dart';
+import '../features/premium/plans.dart';
 
 /// Overridden in main() once async init is done.
 final prefsProvider = Provider<SharedPreferences>((_) => throw UnimplementedError());
 final memoryStoreProvider = Provider<MemoryStore>((_) => throw UnimplementedError());
 
 final chatServiceProvider = Provider<ChatService>((_) => ChatService());
+final uploadServiceProvider = Provider<UploadService>((_) => UploadService());
+
+/// A photo the user has attached to the next chat turn. `path` is null while the
+/// upload is in flight; once set it's passed to the chat call as `image_path`.
+class PendingImage {
+  final Uint8List bytes; // for the inline preview
+  final String? path; // storage path; null until upload completes
+  const PendingImage({required this.bytes, this.path});
+  bool get uploading => path == null;
+}
+
+final pendingImageProvider = StateProvider<PendingImage?>((_) => null);
+
+/// Subject tags the student picks during onboarding (e.g. "H2 Chemistry"). Held
+/// here (not in memory_store) because memory is sign-in-only — anonymous users
+/// build no memory, but the demo step still needs to know their picks to show
+/// subject-matched sample questions.
+final onboardingSubjectsProvider = StateProvider<List<String>>((_) => const []);
 final conversationStoreProvider =
     Provider<ConversationStore>((ref) => ConversationStore(ref.watch(prefsProvider)));
 final streakStoreProvider = Provider<StreakStore>((ref) => StreakStore(ref.watch(prefsProvider)));
@@ -33,6 +58,70 @@ final deviceIdProvider = Provider<String>((ref) {
 final onboardingDoneProvider = StateProvider<bool>((ref) {
   return ref.watch(prefsProvider).getBool('onboarding_done') ?? false;
 });
+
+/// Wraps the RevenueCat SDK. Overridden in main() with the configured instance.
+final purchasesServiceProvider = Provider<PurchasesService>((_) => PurchasesService());
+
+/// Holds the latest RevenueCat CustomerInfo. The SDK pushes updates (purchase,
+/// renewal, expiry, dashboard promo grant) into here, so entitlement-derived
+/// providers below react live without a manual refresh.
+class PurchasesController extends StateNotifier<CustomerInfo?> {
+  final PurchasesService _service;
+  PurchasesController(this._service) : super(null) {
+    try {
+      Purchases.addCustomerInfoUpdateListener(_onUpdate);
+    } catch (_) {/* SDK not configured (e.g. tests) — providers stay false */}
+    _service.customerInfo().then((info) {
+      if (info != null && mounted) state = info;
+    });
+  }
+
+  void _onUpdate(CustomerInfo info) {
+    if (mounted) state = info;
+  }
+
+  Future<void> refresh() async {
+    final info = await _service.customerInfo();
+    if (info != null && mounted) state = info;
+  }
+
+  @override
+  void dispose() {
+    try {
+      Purchases.removeCustomerInfoUpdateListener(_onUpdate);
+    } catch (_) {}
+    super.dispose();
+  }
+}
+
+final customerInfoProvider =
+    StateNotifierProvider<PurchasesController, CustomerInfo?>(
+        (ref) => PurchasesController(ref.watch(purchasesServiceProvider)));
+
+/// Active paid tier rank from RevenueCat entitlements (0 = free/none, 1 = Lite,
+/// 2 = Plus, 3 = Max). Server-verified; entitlements are stacked.
+final tierRankProvider = Provider<int>((ref) {
+  final info = ref.watch(customerInfoProvider);
+  final ents = info?.entitlements.active.keys.toSet() ?? <String>{};
+  return Subscriptions.rankOf(ents);
+});
+
+/// Any paid tier (Lite or above). Used for "is subscribed" checks (restore) and
+/// the advisory flag sent to the backend. NOTE: Lite is paid but stays on the
+/// free model — use [hasSmarterModelProvider] for the Gemini gate.
+final premiumProvider = Provider<bool>((ref) => ref.watch(tierRankProvider) >= 1);
+
+/// Tiers that get the smarter Gemini model (Plus+). Free and Lite run DeepSeek.
+final hasSmarterModelProvider =
+    Provider<bool>((ref) => ref.watch(tierRankProvider) >= Subscriptions.rankSmarterModel);
+
+/// Per-feature gates by minimum tier rank.
+final canPhotoProvider =
+    Provider<bool>((ref) => ref.watch(tierRankProvider) >= Subscriptions.rankPhoto);
+final canMarksCoachProvider =
+    Provider<bool>((ref) => ref.watch(tierRankProvider) >= Subscriptions.rankMarksCoach);
+final canDrillingProvider =
+    Provider<bool>((ref) => ref.watch(tierRankProvider) >= Subscriptions.rankDrilling);
 
 class Settings {
   final ThemeMode themeMode;

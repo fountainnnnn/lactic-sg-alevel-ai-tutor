@@ -1,4 +1,4 @@
-# JCAI — Scaling, Monetization & Cost Strategy
+# Lactic — Scaling, Monetization & Cost Strategy
 
 Status: strategy locked 2026-06-16. Free tier + Phase A cost controls are built;
 paid tier is designed, not yet implemented (comes after the app).

@@ -1,6 +1,7 @@
 // POST /functions/v1/chat — SSE streaming agentic chat.
 import { runAgent } from "../_shared/agent.ts";
 import { corsHeaders, serviceClient, userClient } from "../_shared/db.ts";
+import { invalidMessage, ownedPath } from "../_shared/guards.ts";
 
 interface Body {
   conversation_id?: string;
@@ -18,7 +19,23 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
 
   const auth = req.headers.get("Authorization") ?? "";
+  // Reject an absurd device id (DB bloat / abuse); a missing/normal one is fine.
+  const rawDeviceId = req.headers.get("x-device-id");
+  const deviceId = rawDeviceId && rawDeviceId.length <= 200 ? rawDeviceId : null;
+  // Client IP (behind Cloudflare/Supabase): survives app reinstall, so it backs
+  // the device id for anonymous limiting. Prefer cf-connecting-ip / x-real-ip,
+  // which the trusted proxy sets and the client CANNOT spoof; fall back to the
+  // first x-forwarded-for hop (spoofable) only if those are absent.
+  const clientIp = req.headers.get("cf-connecting-ip") ||
+    req.headers.get("x-real-ip") ||
+    (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
   const body = (await req.json()) as Body;
+  // size guard BEFORE any embedding/generation spend (a multi-MB prompt would
+  // otherwise burn tokens before the rate-limit gatekeepers below run)
+  if (invalidMessage(body.message)) {
+    return new Response(JSON.stringify({ error: "invalid_message", message: "Your message is empty or too long." }),
+      { status: 400, headers: { ...corsHeaders, "content-type": "application/json" } });
+  }
   const sb = serviceClient();
   const asUser = auth ? userClient(auth) : null;
 
@@ -35,16 +52,36 @@ Deno.serve(async (req) => {
       { status: 401, headers: { ...corsHeaders, "content-type": "application/json" } });
   }
 
+  // Server-trusted entitlements (RevenueCat webhook -> subscriptions table). The
+  // client `premium` flag is advisory only; anonymous users are never premium.
+  // Drives both model routing and the per-tier daily limit below.
+  // Stacked entitlements: Max grants lite+plus+max, Plus grants lite+plus, Lite
+  // grants lite. serverRank = highest held (0 free, 1 Lite, 2 Plus, 3 Max).
+  let serverPremium = false, serverRank = 0;
+  if (userId) {
+    const { data: sub } = await sb.from("subscriptions")
+      .select("entitlements, is_active, expires_at").eq("user_id", userId).maybeSingle();
+    if (sub?.is_active) {
+      const ents: string[] = sub.entitlements ?? [];
+      const live = !sub.expires_at || Date.parse(sub.expires_at) > Date.now();
+      if (live) {
+        serverRank = ents.includes("max") ? 3 : ents.includes("plus") ? 2 : ents.includes("lite") ? 1 : 0;
+        serverPremium = serverRank >= 2; // Plus+ -> Gemini; Lite stays on the free model
+      }
+    }
+  }
+
   // Gatekeepers BEFORE any LLM spend, in one round-trip: per-user rate limits +
   // the GLOBAL monthly budget. Fail-open on a limits-query error (an outage
   // shouldn't take chat down).
   let degraded = false; // budget hit -> serve on the free overflow model
   {
-    const { data: lim, error: limErr } = await sb.rpc("usage_limits", { p_user: userId }).single();
+    const { data: lim, error: limErr } = await sb.rpc("usage_limits",
+      { p_user: userId, p_device: deviceId, p_ip: clientIp }).single();
     if (limErr) {
       console.error("usage_limits failed:", limErr);
     } else {
-      const l = lim as { minute_ct: number; day_ct: number; month_cost: number };
+      const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number };
       // 1) global budget circuit-breaker — protects the fixed monthly budget
       const budget = Number(Deno.env.get("MONTHLY_BUDGET_USD") ?? 40);
       const overflow = Deno.env.get("MODEL_OVERFLOW"); // free model slug, or unset
@@ -54,21 +91,47 @@ Deno.serve(async (req) => {
         } else {
           return new Response(JSON.stringify({
             error: "capacity_reached",
-            message: "JCAI has hit its capacity for this month and is taking a short break. Try again soon!",
+            message: "Lactic has hit its capacity for this month and is taking a short break. Try again soon!",
           }), { status: 503, headers: { ...corsHeaders, "content-type": "application/json" } });
         }
       }
-      // 2) per-user rate limits (signed-in only; anon is dev)
+      // 2) per-user rate limits (signed-in), per tier. Daily caps are sized to a
+      // monthly usage budget (~break-even even if maxed every day):
+      // free ~$2 -> 30, Lite ~$6 -> 40, Plus ~$11 -> 75, Max ~$17 -> 115.
       if (userId) {
         const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
-        const perDay = Number(Deno.env.get("TURNS_PER_DAY") ?? 300);
+        const perDay = serverRank >= 3
+          ? Number(Deno.env.get("MAX_TURNS_PER_DAY") ?? 115)
+          : serverRank === 2
+          ? Number(Deno.env.get("PLUS_TURNS_PER_DAY") ?? 75)
+          : serverRank === 1
+          ? Number(Deno.env.get("LITE_TURNS_PER_DAY") ?? 50)
+          : Number(Deno.env.get("FREE_TURNS_PER_DAY") ?? 30);
         if (l.minute_ct >= perMin || l.day_ct >= perDay) {
           const daily = l.day_ct >= perDay;
           return new Response(JSON.stringify({
             error: "rate_limited",
             message: daily
-              ? "You've reached today's usage limit. It resets in a few hours — your brain could use the break too!"
-              : "Whoa, slow down a little — give it a few seconds between questions.",
+              ? "You've reached today's usage limit. It resets in a few hours, your brain could use the break too!"
+              : "Whoa, slow down a little, give it a few seconds between questions.",
+          }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
+        }
+      } else {
+        // 3) anonymous: a small daily taste to nudge sign-up, with guardrails so
+        // it can't be farmed. Require a device id (closes the "omit the header"
+        // bypass), cap per device AND per IP (the IP survives reinstall / a
+        // rotated device id). Blocked when EITHER cap is hit.
+        const anonPerDay = Number(Deno.env.get("ANON_TURNS_PER_DAY") ?? 5);
+        const anonPerIp = Number(Deno.env.get("ANON_TURNS_PER_IP") ?? 25);
+        if (!deviceId) {
+          return new Response(JSON.stringify({ error: "device_id_required" }),
+            { status: 400, headers: { ...corsHeaders, "content-type": "application/json" } });
+        }
+        if (l.device_day_ct >= anonPerDay || (clientIp && l.ip_day_ct >= anonPerIp)) {
+          return new Response(JSON.stringify({
+            error: "rate_limited",
+            signup: true,
+            message: `That's your ${anonPerDay} free questions for today. Sign up free to keep going and to get a tutor that remembers what you're studying.`,
           }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
         }
       }
@@ -131,11 +194,15 @@ Deno.serve(async (req) => {
           history,
           answer_style: body.answer_style,
           degraded,
+          premium: serverPremium,
+          // Memory is a signed-in benefit: anonymous turns build no memory delta.
+          persist_memory: userId != null,
         }, {
           onClarify: (q) => send("clarify", { question: q }),
           onToken: (t) => send("token", { t }),
           onCitations: (c) => send("citations", c),
           onMemoryDelta: (d) => send("memory_delta", d),
+          onExamInsight: (i) => send("exam_insight", i),
           onTrace: (e) => trace.push(e),
         });
         send("done", { conversation_id: convId, model: result.model });
@@ -157,7 +224,7 @@ Deno.serve(async (req) => {
         // Best-effort: telemetry must never fail a turn.
         if (result) {
           await sb.from("usage_log").insert({
-            user_id: userId, conversation_id: convId,
+            user_id: userId, device_id: deviceId, ip: clientIp, conversation_id: convId,
             model: result.model, intent: result.intent,
             llm_calls: result.usage.llm_calls,
             prompt_tokens: result.usage.prompt_tokens,
@@ -175,14 +242,6 @@ Deno.serve(async (req) => {
     headers: { ...corsHeaders, "content-type": "text/event-stream", "cache-control": "no-cache" },
   });
 });
-
-// Restrict an upload path to the caller's own folder. When anon (no userId,
-// dev only) the path is used as-is. Blocks traversal and cross-user reads.
-function ownedPath(path: string, userId: string | null): string {
-  if (path.includes("..")) throw new Error("bad path");
-  if (userId && !path.startsWith(`${userId}/`)) throw new Error("foreign path");
-  return path;
-}
 
 async function ocrImage(sb: ReturnType<typeof serviceClient>, path: string): Promise<string> {
   const { gen } = await import("../_shared/llm.ts");

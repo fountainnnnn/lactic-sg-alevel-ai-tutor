@@ -65,7 +65,7 @@ def show(title: str, q: str, r: dict, full_answer: bool = False) -> None:
     print(f"ANSWER:\n{a}")
 
 
-MEM_TWO_SUBJECTS = """# JCAI Memory
+MEM_TWO_SUBJECTS = """# Lactic Memory
 
 ## Profile
 - Subjects: H2 Chemistry, H2 Economics

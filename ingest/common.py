@@ -1,4 +1,4 @@
-"""Shared primitives for the JCAI ingest pipeline."""
+"""Shared primitives for the Lactic ingest pipeline."""
 from __future__ import annotations
 
 import hashlib

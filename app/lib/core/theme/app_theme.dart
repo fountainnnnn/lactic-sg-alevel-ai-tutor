@@ -58,7 +58,7 @@ class AppTheme {
         foregroundColor: text,
         elevation: 0,
         scrolledUnderElevation: 0.5,
-        centerTitle: false,
+        centerTitle: true,
         titleTextStyle: textTheme.titleLarge,
       ),
       dividerColor: tokens.border,

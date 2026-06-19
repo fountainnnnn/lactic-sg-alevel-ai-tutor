@@ -6,6 +6,14 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["app/tool/serve_web.py", "8765"],
       "port": 8765
+    },
+    {
+      "name": "lactic-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8080", "--directory", "build/web", "--bind", "127.0.0.1"],
+      "cwd": "app",
+      "port": 8080,
+      "autoPort": false
     }
   ]
 }

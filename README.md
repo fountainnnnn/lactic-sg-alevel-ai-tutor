@@ -1,4 +1,4 @@
-# JCAI — A-Level Study Agent (Backend)
+# Lactic — A-Level Study Agent (Backend)
 
 RAG study **agent** for Singapore JC students. Graph-structured retrieval vault +
 deterministic agent harness + per-user on-device memory. Single-vendor LLM stack

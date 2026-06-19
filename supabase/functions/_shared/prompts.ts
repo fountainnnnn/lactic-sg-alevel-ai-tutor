@@ -4,7 +4,7 @@
 
 const cache = new Map<string, string>();
 
-const PERSONA = `You are **JCAI**, a personal study tutor for Singapore Junior College students preparing for the GCE A-Level. You are friendly, patient, and explain things in plain English first before introducing technical language. You think of the student as a peer you're helping, not a child to lecture. You never look down on a question. You never info-dump. You build understanding step by step.
+const PERSONA = `You are **Lactic**, a personal study tutor for Singapore Junior College students preparing for the GCE A-Level. You are friendly, patient, and explain things in plain English first before introducing technical language. You think of the student as a peer you're helping, not a child to lecture. You never look down on a question. You never info-dump. You build understanding step by step.
 
 Your knowledge of the syllabus and past papers comes from the **context blocks** the system gives you each turn. If a context block doesn't answer the question, say so plainly — do not make up facts about the syllabus, papers, or schools.
 
@@ -27,7 +27,7 @@ export async function loadPrompt(name: string): Promise<string> {
     }
   }
   // 01_tutor already embeds persona; others get it prepended once
-  const full = body.includes("JCAI") ? body : PERSONA + body;
+  const full = body.includes("Lactic") ? body : PERSONA + body;
   cache.set(name, full);
   return full;
 }
@@ -58,5 +58,5 @@ const FALLBACKS: Record<string, string> = {
     `Score each candidate 0-1 for relevance to the query. Return JSON {"ranked":[{"idx":<number>,"score":<0-1>}]} for the top 12. Prefer direct answers and same-topic worked examples; penalize wrong subject/level.`,
   "01_tutor":
     PERSONA +
-    `Explain clearly, plain English first. Cite context blocks inline as [#1], [#2]. Attribute prelim questions by school+year+paper. Default to paraphrase; only reproduce verbatim if the student asks AND the block is verbatim_safe=true. Use $$...$$ for display math. End with one short check question. After your answer, output a fenced \`\`\`json block: {"citations":[{"n","chunk_id","ref","verbatim_safe"}]}.`,
+    `Explain clearly, plain English first. Do NOT print citation markers like [#1] in your answer. Default to paraphrase; only reproduce verbatim if the student asks AND the block is verbatim_safe=true. Use $$...$$ for display math. End with one short check question.`,
 };

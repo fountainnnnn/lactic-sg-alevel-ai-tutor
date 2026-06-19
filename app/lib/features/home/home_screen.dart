@@ -14,7 +14,14 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  final _ask = TextEditingController();
   bool _dismissed = false;
+
+  @override
+  void dispose() {
+    _ask.dispose();
+    super.dispose();
+  }
 
   String _greeting() {
     final h = DateTime.now().hour;
@@ -31,153 +38,356 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return s.trim();
   }
 
+  void _go(String text) {
+    if (text.trim().isNotEmpty) {
+      ref.read(chatControllerProvider.notifier).send(text.trim());
+    }
+    context.go('/chat');
+  }
+
+  static const _mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  String _fmt(DateTime d) => '${d.day} ${_mon[d.month - 1]} ${d.year}';
+
+  Future<void> _editExam() async {
+    final prefs = ref.read(prefsProvider);
+    final labelCtrl = TextEditingController(text: prefs.getString('exam_label') ?? '');
+    DateTime? date = DateTime.tryParse(prefs.getString('exam_date') ?? '');
+    final hadDate = prefs.getString('exam_date') != null;
+    await showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final t = ctx.tokens;
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) => Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Exam countdown', style: Theme.of(ctx).textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text('Track the days to your next big paper.', style: TextStyle(color: t.textMuted)),
+                  const SizedBox(height: 16),
+                  TextField(controller: labelCtrl, decoration: const InputDecoration(hintText: 'e.g. H2 Chemistry Prelim')),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                    label: Text(date == null ? 'Pick a date' : _fmt(date!)),
+                    onPressed: () async {
+                      final now = DateTime.now();
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: date ?? now.add(const Duration(days: 30)),
+                        firstDate: now,
+                        lastDate: now.add(const Duration(days: 365 * 3)),
+                      );
+                      if (picked != null) setSheet(() => date = picked);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Row(children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: date == null
+                            ? null
+                            : () async {
+                                await prefs.setString('exam_date', date!.toIso8601String());
+                                final label = labelCtrl.text.trim();
+                                await prefs.setString('exam_label', label.isEmpty ? 'A-Levels' : label);
+                                if (ctx.mounted) Navigator.of(ctx).pop();
+                              },
+                        child: const Text('Save'),
+                      ),
+                    ),
+                    if (hadDate) ...[
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () async {
+                          await prefs.remove('exam_date');
+                          await prefs.remove('exam_label');
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+                        },
+                        child: const Text('Remove'),
+                      ),
+                    ],
+                  ]),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    labelCtrl.dispose();
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final prefs = ref.watch(prefsProvider);
     final md = ref.watch(memoryStoreProvider).markdown;
     final name = RegExp(r'Name:\s*(.+)').firstMatch(md)?.group(1)?.trim();
     final struggle = _firstStruggle(md);
     final recents = ref.watch(conversationStoreProvider).list().take(3).toList();
     final streak = ref.watch(streakStoreProvider).current();
 
+    // Exam countdown (optional; hidden until an exam date is set).
+    final examIso = prefs.getString('exam_date');
+    final examLabel = prefs.getString('exam_label');
+    int? daysLeft;
+    if (examIso != null) {
+      final d = DateTime.tryParse(examIso);
+      if (d != null) {
+        final now = DateTime.now();
+        daysLeft = DateTime(d.year, d.month, d.day)
+            .difference(DateTime(now.year, now.month, now.day))
+            .inDays;
+        if (daysLeft < 0) daysLeft = null;
+      }
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('JCAI'),
-        actions: [
-          IconButton(icon: const Icon(Icons.settings_outlined), onPressed: () => context.push('/settings')),
-        ],
-      ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           children: [
-            Text(name == null ? _greeting() : '${_greeting()}, $name', style: theme.textTheme.displaySmall),
+            // Greeting + avatar
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (name != null && name.trim().isNotEmpty) ...[
+                        Text('${_greeting()},', style: TextStyle(color: t.textMuted, fontSize: 18)),
+                        Text(name, style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                      ] else
+                        // No name yet — make the greeting the headline (no awkward "there").
+                        Text(_greeting(), style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => context.push('/edit-profile'),
+                  child: CircleAvatar(
+                    radius: 26,
+                    backgroundColor: scheme.primary,
+                    child: Icon(Icons.person_rounded, color: scheme.onPrimary, size: 30),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 18),
 
-            // Ask anything card
+            // Exam countdown (tap to set or edit)
             GestureDetector(
-              onTap: () => context.go('/chat'),
-              child: Container(
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: scheme.surface,
-                  borderRadius: BorderRadius.circular(FF.rCard),
-                  border: Border.all(color: t.border),
-                ),
-                child: Column(children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(color: t.primarySoft, shape: BoxShape.circle),
-                    child: Icon(Icons.chat_bubble_outline_rounded, color: t.onPrimarySoft, size: 30),
-                  ),
-                  const SizedBox(height: 14),
-                  Text('Ask anything', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 4),
-                  Text('Snap a photo of a question or type your study query.',
-                      textAlign: TextAlign.center, style: TextStyle(color: t.textMuted)),
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => context.go('/chat'),
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text('Type query'),
+              onTap: _editExam,
+              child: (daysLeft != null && examLabel != null)
+                  ? Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(FF.rCard)),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('A-LEVEL COUNTDOWN',
+                                    style: TextStyle(color: t.onPrimarySoft, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+                                const SizedBox(height: 4),
+                                Text(examLabel, style: TextStyle(color: t.onPrimarySoft, fontSize: 17, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('$daysLeft',
+                                  style: TextStyle(color: scheme.primary, fontSize: 40, fontWeight: FontWeight.w800, height: 1)),
+                              Text(daysLeft == 1 ? 'day left' : 'days left', style: TextStyle(color: t.onPrimarySoft, fontSize: 13)),
+                            ],
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 52,
-                      height: 52,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(52, 52),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FF.rButton)),
+                    )
+                  : Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: t.surfaceMuted, borderRadius: BorderRadius.circular(FF.rCard)),
+                      child: Row(children: [
+                        Icon(Icons.event_rounded, color: t.textMuted),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Set your exam countdown',
+                                  style: TextStyle(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                              const SizedBox(height: 2),
+                              Text('Add your next exam date to track the days left.',
+                                  style: TextStyle(color: t.textMuted, fontSize: 13)),
+                            ],
+                          ),
                         ),
-                        onPressed: () => context.go('/chat'),
-                        child: Icon(Icons.photo_camera_outlined, color: scheme.primary),
-                      ),
+                        Icon(Icons.chevron_right_rounded, color: t.textMuted),
+                      ]),
                     ),
-                  ]),
-                ]),
+            ),
+            const SizedBox(height: 16),
+
+            // Ask anything
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(FF.rCard),
+                border: Border.all(color: t.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Ask anything', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      _SquareIcon(icon: Icons.photo_camera_outlined, onTap: () => _go('')),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _ask,
+                          textInputAction: TextInputAction.send,
+                          decoration: const InputDecoration(hintText: 'Type a question or topic...'),
+                          onSubmitted: _go,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FF.rButton)),
+                          ),
+                          onPressed: () => _go(_ask.text),
+                          child: const Icon(Icons.send_rounded, size: 20),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
 
-            // Memory-driven suggestion (real, from struggling topics)
+            // Memory nudge
             if (struggle != null && !_dismissed) ...[
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: t.primarySoft.withValues(alpha: 0.5),
+                  color: scheme.surface,
                   borderRadius: BorderRadius.circular(FF.rCard),
-                  border: Border.all(color: scheme.primary.withValues(alpha: 0.2)),
+                  border: Border.all(color: t.border),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      Icon(Icons.lightbulb_outline_rounded, color: t.onPrimarySoft, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text.rich(TextSpan(
-                          style: TextStyle(color: scheme.onSurface, height: 1.4),
-                          children: [
-                            const TextSpan(text: 'You\'ve been working on '),
-                            TextSpan(text: struggle, style: TextStyle(fontWeight: FontWeight.w700, color: t.onPrimarySoft)),
-                            const TextSpan(text: '. Want to drill it?'),
-                          ],
-                        )),
+                      Text('MEMORY NUDGE',
+                          style: TextStyle(color: t.textMuted, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => setState(() => _dismissed = true),
+                        child: Icon(Icons.close_rounded, size: 18, color: t.textMuted),
                       ),
                     ]),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
+                    Text.rich(TextSpan(
+                      style: TextStyle(color: scheme.onSurface, height: 1.4, fontSize: 16),
+                      children: [
+                        const TextSpan(text: 'You have been working on '),
+                        TextSpan(text: struggle, style: const TextStyle(fontWeight: FontWeight.w700)),
+                        const TextSpan(text: '. Want to drill it?'),
+                      ],
+                    )),
+                    const SizedBox(height: 14),
                     Row(children: [
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 36),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          shape: const StadiumBorder(),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => _go('Give me a practice question on $struggle'),
+                          child: const Text('Start drill'),
                         ),
-                        onPressed: () {
-                          ref.read(chatControllerProvider.notifier)
-                              .send('Give me a practice question on $struggle');
-                          context.go('/chat');
-                        },
-                        child: const Text('Start drill'),
                       ),
-                      const SizedBox(width: 4),
-                      TextButton(onPressed: () => setState(() => _dismissed = true), child: const Text('Dismiss')),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => setState(() => _dismissed = true),
+                          child: const Text('Dismiss'),
+                        ),
+                      ),
                     ]),
                   ],
                 ),
               ),
             ],
 
-            // Recent conversations (real)
-            if (recents.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text('Pick up where you left off', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 10),
-              ...recents.map((c) => _RecentCard(conv: c, t: t)),
-            ],
-
-            // Stats: streak (real) + mastery (Premium teaser)
-            const SizedBox(height: 20),
+            // Stats
+            const SizedBox(height: 16),
             Row(children: [
-              Expanded(child: _Stat(label: 'Day streak', value: '$streak', icon: Icons.local_fire_department_rounded, t: t)),
+              Expanded(child: _Stat(label: 'Day streak', value: '$streak', unit: 'days in a row', icon: Icons.local_fire_department_rounded, t: t)),
               const SizedBox(width: 12),
               Expanded(
                 child: GestureDetector(
                   onTap: () => context.push('/premium'),
-                  child: _Stat(label: 'Mastery', value: 'Premium', icon: Icons.lock_outline_rounded, t: t, muted: true),
+                  child: _Stat(label: 'Mastery', value: 'Plus', unit: 'Unlock', icon: Icons.lock_outline_rounded, t: t, muted: true),
                 ),
               ),
             ]),
+
+            // Recents
+            if (recents.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Row(children: [
+                Expanded(child: Text('Pick up where you left off', style: theme.textTheme.titleMedium)),
+                GestureDetector(
+                  onTap: () => context.go('/history'),
+                  child: Text('See all', style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700)),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              ...recents.map((c) => _RecentCard(conv: c, t: t)),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+}
+
+class _SquareIcon extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _SquareIcon({required this.icon, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return InkWell(
+      borderRadius: BorderRadius.circular(FF.rButton),
+      onTap: onTap,
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(color: t.surfaceMuted, borderRadius: BorderRadius.circular(FF.rButton)),
+        child: Icon(icon, color: t.textMuted),
       ),
     );
   }
@@ -190,38 +400,38 @@ class _RecentCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(FF.rCard),
         onTap: () {
           ref.read(chatControllerProvider.notifier).load(conv);
           context.go('/chat');
         },
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(14),
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(FF.rCard),
             border: Border.all(color: t.border),
           ),
           child: Row(children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(11)),
-              child: Icon(Icons.history_edu_outlined, color: t.onPrimarySoft, size: 22),
-            ),
-            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (conv.subject.isNotEmpty)
-                    Text(conv.subject.toUpperCase(),
-                        style: TextStyle(color: t.textMuted, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
                   Text(conv.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5)),
+                  if (conv.subject.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(999)),
+                      child: Text(conv.subject,
+                          style: TextStyle(color: t.onPrimarySoft, fontSize: 12, fontWeight: FontWeight.w600)),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -236,29 +446,34 @@ class _RecentCard extends ConsumerWidget {
 class _Stat extends StatelessWidget {
   final String label;
   final String value;
+  final String unit;
   final IconData icon;
   final AppTokens t;
   final bool muted;
-  const _Stat({required this.label, required this.value, required this.icon, required this.t, this.muted = false});
+  const _Stat({required this.label, required this.value, required this.unit, required this.icon, required this.t, this.muted = false});
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: 96,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: t.surfaceMuted, borderRadius: BorderRadius.circular(FF.rCard)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, color: muted ? t.textMuted : Theme.of(context).colorScheme.primary),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-              Text(label, style: TextStyle(color: t.textMuted, fontSize: 12.5)),
-            ],
-          ),
+          Row(children: [
+            Icon(icon, size: 18, color: muted ? t.textMuted : scheme.primary),
+            const SizedBox(width: 6),
+            Text(label.toUpperCase(),
+                style: TextStyle(color: t.textMuted, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+          ]),
+          const SizedBox(height: 10),
+          Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 2),
+          if (muted)
+            Text(unit, style: TextStyle(color: scheme.primary, fontSize: 12.5, fontWeight: FontWeight.w700, decoration: TextDecoration.underline))
+          else
+            Text(unit, style: TextStyle(color: t.textMuted, fontSize: 12.5)),
         ],
       ),
     );
