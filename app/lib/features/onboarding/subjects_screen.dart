@@ -1,18 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/subjects.dart';
 import '../../core/theme/tokens.dart';
 import '../../state/app_state.dart';
 import '../shared/illustration.dart';
 
-// Subjects offered at each level. A student picks each subject under the level
-// they take it at (e.g. General Paper at H1, Chemistry at H2).
-const _byLevel = <String, List<String>>{
-  'H1': ['General Paper', 'Mathematics', 'Physics', 'Chemistry', 'Biology', 'Economics', 'Geography', 'History', 'Literature (Eng)'],
-  'H2': ['Mathematics', 'Further Mathematics', 'Physics', 'Chemistry', 'Biology', 'Economics', 'Geography', 'History', 'Literature (Eng)', 'Computing'],
-  'H3': ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'Economics', 'History', 'Geography', 'Literature (Eng)'],
-};
-const _levels = ['H1', 'H2', 'H3'];
+// Subjects offered at each level — shared catalogue (see core/subjects.dart) so
+// onboarding and the profile editor never drift apart.
+const _byLevel = subjectsByLevel;
+const _levels = subjectLevels;
 
 class SubjectsStep extends ConsumerStatefulWidget {
   final VoidCallback onNext;

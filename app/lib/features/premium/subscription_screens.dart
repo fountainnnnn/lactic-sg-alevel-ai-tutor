@@ -28,55 +28,71 @@ class ManageSubscriptionScreen extends ConsumerWidget {
       1 => Subscriptions.lite,
       _ => null,
     };
-    final tierName = tier?.name ?? 'Lactic Free';
-    final price = tier?.monthly.price ?? '—';
+    // Free users have no subscription — show a plan card + upgrade CTA, never a
+    // bogus renewal date / amount. Paid users see real billing details.
+    final planCard = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(20)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('CURRENT PLAN',
+              style: TextStyle(color: t.onPrimarySoft, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+          const SizedBox(height: 8),
+          Text(tier?.name ?? 'Lactic Free', style: theme.textTheme.titleLarge?.copyWith(color: scheme.primary)),
+          const SizedBox(height: 4),
+          Text(
+            tier == null ? "You're on the free plan, no billing." : 'Renews $_renewDate at ${tier.monthly.price}',
+            style: TextStyle(color: t.onPrimarySoft.withValues(alpha: 0.85)),
+          ),
+        ],
+      ),
+    );
     return Scaffold(
       appBar: AppBar(title: const Text('Subscription')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(20)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('CURRENT PLAN',
-                      style: TextStyle(color: t.onPrimarySoft, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
-                  const SizedBox(height: 8),
-                  Text(tierName, style: theme.textTheme.titleLarge?.copyWith(color: scheme.primary)),
-                  const SizedBox(height: 4),
-                  Text('Renews $_renewDate at $price', style: TextStyle(color: t.onPrimarySoft.withValues(alpha: 0.85))),
+          children: tier == null
+              ? [
+                  planCard,
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => context.push('/premium'),
+                    child: const Text('See plans'),
+                  ),
+                  const SizedBox(height: 14),
+                  Text('Upgrade any time for more daily questions, the Reasoning model, photo solve, and more.',
+                      textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, fontSize: 13, height: 1.5)),
+                ]
+              : [
+                  planCard,
+                  const SizedBox(height: 16),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: scheme.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: t.border),
+                    ),
+                    child: Column(children: [
+                      _DetailRow('Plan', '${tier.name} · Monthly'),
+                      _Divider(t),
+                      _DetailRow('Amount', '${tier.monthly.price} / month'),
+                      _Divider(t),
+                      const _DetailRow('Next renewal', _renewDate),
+                    ]),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton(
+                    onPressed: () => ref.read(purchasesServiceProvider).presentCustomerCenter(),
+                    child: const Text('Manage subscription'),
+                  ),
+                  const SizedBox(height: 14),
+                  Text('Manage opens the RevenueCat Customer Center: change plan, cancel, '
+                      'or restore. Cancelling stops auto-renewal; you keep access until $_renewDate.',
+                      textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, fontSize: 13, height: 1.5)),
                 ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(
-                color: scheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: t.border),
-              ),
-              child: Column(children: [
-                _DetailRow('Plan', '$tierName · Monthly'),
-                _Divider(t),
-                _DetailRow('Amount', '$price / month'),
-                _Divider(t),
-                const _DetailRow('Next renewal', _renewDate),
-              ]),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: () => ref.read(purchasesServiceProvider).presentCustomerCenter(),
-              child: const Text('Manage subscription'),
-            ),
-            const SizedBox(height: 14),
-            Text('Manage opens the RevenueCat Customer Center: change plan, cancel, '
-                'or restore. Cancelling stops auto-renewal; you keep access until $_renewDate.',
-                textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, fontSize: 13, height: 1.5)),
-          ],
         ),
       ),
     );

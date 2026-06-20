@@ -68,7 +68,7 @@ class SettingsScreen extends ConsumerWidget {
               label: 'Account',
               tight: true,
               child: Column(children: [
-                _NavRow(label: 'Manage Subscription', onTap: () => context.push('/subscription')),
+                _NavRow(label: 'Manage subscription', onTap: () => context.push('/subscription')),
                 _Divider(),
                 _NavRow(label: 'Privacy', onTap: () => context.push('/privacy')),
                 _Divider(),

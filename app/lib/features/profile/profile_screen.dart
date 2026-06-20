@@ -227,11 +227,11 @@ class ProfileScreen extends ConsumerWidget {
                 child: Column(children: [
                   _Row(label: 'Settings', onTap: () => context.push('/settings')),
                   _Div(t),
-                  _Row(label: 'Notification Settings', onTap: () => context.push('/notifications')),
+                  _Row(label: 'Notification settings', onTap: () => context.push('/notifications')),
                   _Div(t),
                   _Row(label: 'Help', onTap: () => context.push('/help')),
                   _Div(t),
-                  _Row(label: 'Privacy Policy', onTap: () => context.push('/privacy')),
+                  _Row(label: 'Privacy policy', onTap: () => context.push('/privacy')),
                 ]),
               ),
             ),

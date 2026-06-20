@@ -3,13 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/subjects.dart';
 import '../../core/theme/tokens.dart';
 import '../../state/app_state.dart';
-
-const _allSubjects = [
-  'Mathematics', 'Physics', 'Chemistry', 'Biology', 'Economics',
-  'Geography', 'History', 'Literature', 'Computing', 'General Paper',
-];
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -28,7 +24,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final md = ref.read(memoryStoreProvider).markdown;
     _name = TextEditingController(
         text: RegExp(r'Name:\s*(.+)').firstMatch(md)?.group(1)?.trim() ?? '');
-    for (final s in _allSubjects) {
+    for (final s in allSubjectNames) {
       if (md.contains(s)) _selected.add(s);
     }
     if (md.contains('H1 ')) _level = 'H1';
@@ -60,7 +56,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final signedIn = user != null;
     final email = user?.email;
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit Profile')),
+      appBar: AppBar(title: const Text('Edit profile')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -133,7 +129,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             Wrap(
               spacing: 10,
               runSpacing: 10,
-              children: _allSubjects.map((s) {
+              children: (subjectsByLevel[_level] ?? const []).map((s) {
                 final on = _selected.contains(s);
                 return GestureDetector(
                   onTap: () => setState(() => on ? _selected.remove(s) : _selected.add(s)),
