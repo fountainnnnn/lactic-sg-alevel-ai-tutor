@@ -1,13 +1,17 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dart:typed_data';
 
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/config.dart';
 import '../data/chat_service.dart';
 import '../data/conversation_store.dart';
 import '../data/memory_store.dart';
@@ -114,6 +118,32 @@ final premiumProvider = Provider<bool>((ref) => ref.watch(tierRankProvider) >= 1
 /// Tiers that get the smarter Gemini model (Plus+). Free and Lite run DeepSeek.
 final hasSmarterModelProvider =
     Provider<bool>((ref) => ref.watch(tierRankProvider) >= Subscriptions.rankSmarterModel);
+
+/// Today's daily-allowance usage as a percentage (0–100), from the backend.
+/// We deliberately surface a PERCENTAGE, never a raw message/token count — a
+/// number to grind against is distracting while studying. Null when signed out
+/// or on error (the UI just hides the indicator). Invalidate after a turn to
+/// refresh: `ref.invalidate(usageProvider)`.
+final usageProvider = FutureProvider<int?>((ref) async {
+  ref.watch(customerInfoProvider); // re-fetch when the tier (and so the cap) changes
+  final token = Supabase.instance.client.auth.currentSession?.accessToken;
+  if (token == null) return null;
+  try {
+    final resp = await http.post(
+      Uri.parse(Config.usageEndpoint),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'apikey': Config.supabasePublishableKey,
+        'Content-Type': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 10));
+    if (resp.statusCode != 200) return null;
+    final pct = (jsonDecode(resp.body) as Map<String, dynamic>)['pct'];
+    return pct is num ? pct.round().clamp(0, 100) : null;
+  } catch (_) {
+    return null;
+  }
+});
 
 /// Per-feature gates by minimum tier rank.
 final canPhotoProvider =

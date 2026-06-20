@@ -35,7 +35,15 @@ class Tier {
   final int rank; // 1 | 2 | 3 (free = 0)
   final String name; // user-facing, e.g. 'Lactic Plus'
   final String tagline; // one-line value prop
-  final int dailyCap; // questions/day (the "Lactic Acid" allowance)
+  /// Daily allowance as a TOKEN budget — the client MIRROR of the *_TOKENS_PER_DAY
+  /// defaults on the chat Edge Function (db.ts dailyTokenCap), which is the
+  /// authoritative source for enforcement. Used only to derive the "×N vs the
+  /// previous tier" label on the paywall — we never surface a raw count, because
+  /// a number to grind against distracts from studying. Keep in sync.
+  final int tokensPerDay;
+  /// Optional value line shown beneath the tier card on the paywall (e.g. a
+  /// price comparison). Keep it factually true — it's a comparative claim.
+  final String? valueNote;
   final Plan monthly;
   final Plan annual;
   const Tier({
@@ -43,7 +51,8 @@ class Tier {
     required this.rank,
     required this.name,
     required this.tagline,
-    required this.dailyCap,
+    required this.tokensPerDay,
+    this.valueNote,
     required this.monthly,
     required this.annual,
   });
@@ -66,15 +75,16 @@ class Subscriptions {
   static const ePlus = 'plus';
   static const eMax = 'max';
 
-  // Free tier daily cap (no subscription, signed in). Enforced server-side too.
-  static const freeDailyCap = 30;
+  // Free tier daily allowance (no subscription, signed in). Mirror of
+  // FREE_TOKENS_PER_DAY; enforced server-side.
+  static const freeTokensPerDay = 300000;
 
   static const lite = Tier(
     key: 'lite',
     rank: 1,
     name: 'Lactic Lite',
     tagline: 'More questions a day, same friendly tutor.',
-    dailyCap: 50, // free DeepSeek model, just a higher daily limit (~$3/mo)
+    tokensPerDay: 490000, // free DeepSeek model, just a bigger token allowance (~1.6× Free)
     monthly: Plan(id: 'lactic_lite_monthly', billing: Billing.monthly, price: 'S\$7.90', period: '/month', wasPrice: 'S\$9.90'),
     annual: Plan(
       id: 'lactic_lite_annual', billing: Billing.annual,
@@ -87,7 +97,9 @@ class Subscriptions {
     rank: 2,
     name: 'Lactic Plus',
     tagline: 'Smarter model, photo solve, and Marks Coach.',
-    dailyCap: 75,
+    tokensPerDay: 980000, // 2× Lite
+    // True at S$13.90 vs ChatGPT Plus / Claude Pro (~S$28/mo incl. SG GST).
+    valueNote: 'Half the price of ChatGPT Plus or Claude Pro. Built for Singapore A-Levels.',
     monthly: Plan(id: 'lactic_plus_monthly', billing: Billing.monthly, price: 'S\$13.90', period: '/month', wasPrice: 'S\$16.90'),
     annual: Plan(
       id: 'lactic_plus_annual', billing: Billing.annual,
@@ -100,15 +112,32 @@ class Subscriptions {
     rank: 3,
     name: 'Lactic Max',
     tagline: 'The full coaching machine, with the most usage.',
-    dailyCap: 115,
-    monthly: Plan(id: 'lactic_max_monthly', billing: Billing.monthly, price: 'S\$19.90', period: '/month', wasPrice: 'S\$23.90'),
+    tokensPerDay: 2450000, // 5× Lite (2.5× Plus)
+    monthly: Plan(id: 'lactic_max_monthly', billing: Billing.monthly, price: 'S\$29.90', period: '/month', wasPrice: 'S\$35.90'),
     annual: Plan(
       id: 'lactic_max_annual', billing: Billing.annual,
-      price: 'S\$199', period: '/year', note: 'Save 17% · 2 months free', wasPrice: 'S\$239',
+      price: 'S\$299', period: '/year', note: 'Save 17% · 2 months free', wasPrice: 'S\$359',
     ),
   );
 
   static const tiers = [lite, plus, max];
+
+  /// Tier each card's "×N usage" is measured against: Lite anchors to Free; the
+  /// paid upgrades (Plus, Max) both anchor to Lite, the entry paid tier — so the
+  /// numbers escalate cleanly (Plus 2×, Max 3×) off a single baseline.
+  static (String, int) _baseline(Tier t) => t.rank == 1
+      ? ('Free', freeTokensPerDay)
+      : ('Lite', lite.tokensPerDay);
+
+  /// "×N usage" label for the paywall, e.g. "3× Lite usage" — so users know how
+  /// much more they get without surfacing a raw count. Whole multiples drop the
+  /// decimal (3×), others show one place (1.6×).
+  static String usageMultiplier(Tier t) {
+    final (baseName, baseTok) = _baseline(t);
+    final m = t.tokensPerDay / baseTok;
+    final mStr = (m * 10).roundToDouble() % 10 == 0 ? m.toStringAsFixed(0) : m.toStringAsFixed(1);
+    return '$mStr× $baseName usage';
+  }
 
   /// Rank a feature needs. Used by the app to gate, and by the paywall list.
   /// Lite (rank 1) is ONLY a higher daily limit — same free model, no photo.

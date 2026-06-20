@@ -30,6 +30,7 @@ class ProfileScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final md = ref.watch(memoryStoreProvider).markdown;
+    final usagePct = ref.watch(usageProvider).valueOrNull;
 
     final profile = _section(md, 'Profile') ?? '';
     final name = RegExp(r'Name:\s*(.+)').firstMatch(profile)?.group(1)?.trim();
@@ -86,6 +87,13 @@ class ProfileScreen extends ConsumerWidget {
                         ))
                     .toList(),
               ),
+            ],
+
+            // Today's usage — a percentage, never a raw count (a number to grind
+            // against distracts from studying). Hidden when signed out / offline.
+            if (usagePct != null) ...[
+              const _Label('Lactic Acid (Usage)'),
+              _UsageCard(pct: usagePct),
             ],
 
             const SizedBox(height: 22),
@@ -204,6 +212,57 @@ class _Label extends StatelessWidget {
         child: Text(text.toUpperCase(),
             style: TextStyle(color: context.tokens.textMuted, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
       );
+}
+
+/// Lactic Acid — builds UP as the student studies (it doesn't deplete). The bar
+/// fills toward 100% (today's limit), in the Lactic brand colour at every level
+/// because building up acid is the normal, encouraged state — not an error.
+class _UsageCard extends StatelessWidget {
+  final int pct;
+  const _UsageCard({required this.pct});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final scheme = Theme.of(context).colorScheme;
+    final acid = scheme.primary; // "Lactic Acid" colour — one colour, all levels
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(FF.rCard),
+        border: Border.all(color: t.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Built up today',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              Text('$pct%',
+                  style: TextStyle(color: acid, fontWeight: FontWeight.w800, fontSize: 15)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: (pct / 100).clamp(0.0, 1.0),
+              minHeight: 8,
+              backgroundColor: t.surfaceMuted,
+              valueColor: AlwaysStoppedAnimation(acid),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('Builds up as you study · clears after a 24h rest',
+              style: TextStyle(color: t.textMuted, fontSize: 12.5)),
+        ],
+      ),
+    );
+  }
 }
 
 class _IconBox extends StatelessWidget {

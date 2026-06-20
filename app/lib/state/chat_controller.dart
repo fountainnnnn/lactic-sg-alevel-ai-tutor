@@ -138,6 +138,8 @@ class ChatController extends StateNotifier<ChatState> {
         c.updatedAt = DateTime.now();
         ref.read(conversationStoreProvider).save(c);
       }
+      // a turn just consumed part of today's allowance — refresh the indicator
+      ref.invalidate(usageProvider);
     }
   }
 

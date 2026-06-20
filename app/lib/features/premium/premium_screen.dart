@@ -99,6 +99,21 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 onTap: () => setState(() => _tier = tier),
                 tokens: t,
               ),
+              if (tier.valueNote != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 7, 6, 0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.savings_outlined, size: 15, color: scheme.primary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(tier.valueNote!,
+                            style: TextStyle(
+                                color: scheme.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 6),
@@ -252,7 +267,7 @@ class _TierCard extends StatelessWidget {
                     Text(tier.name,
                         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                     const SizedBox(height: 2),
-                    Text('${tier.dailyCap} questions a day',
+                    Text(Subscriptions.usageMultiplier(tier),
                         style: TextStyle(color: scheme.primary, fontSize: 12.5, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 1),
                     Text(tier.tagline, style: TextStyle(color: tokens.textMuted, fontSize: 12.5)),

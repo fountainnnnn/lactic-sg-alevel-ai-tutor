@@ -7,6 +7,7 @@ class Config {
       'sb_publishable_REDACTED';
 
   static String get chatEndpoint => '$supabaseUrl/functions/v1/chat';
+  static String get usageEndpoint => '$supabaseUrl/functions/v1/usage';
   static String get deleteAccountEndpoint =>
       '$supabaseUrl/functions/v1/delete-account';
 
