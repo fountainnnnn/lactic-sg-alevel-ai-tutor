@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/tokens.dart';
+import '../../state/app_state.dart';
 
 /// Optional account (App Store 5.1.1(v): never forced). A chooser of Google /
 /// Apple / email; email reveals the password form. Email auth is wired to
@@ -42,7 +44,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         await auth.signInWithPassword(email: _email.text.trim(), password: _password.text);
       }
       if (mounted && auth.currentSession != null) {
-        context.go('/home');
+        _enterApp();
       } else if (mounted) {
         setState(() => _error = 'Check your email to confirm your account, then sign in.');
       }
@@ -58,23 +60,54 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   void _soon(String which) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$which sign-in is coming soon.')));
 
+  // Enter the app from sign-in. Sign-in is reachable BEFORE onboarding is done
+  // ("I already have an account" on Welcome), so mark onboarding complete first —
+  // otherwise the router redirect bounces /home straight back to /welcome.
+  void _enterApp() {
+    ref.read(prefsProvider).setBool('onboarding_done', true);
+    ref.read(onboardingDoneProvider.notifier).state = true;
+    context.go('/home');
+  }
+
+  // Back, however the user triggers it (system back or the arrow). Collapse the
+  // email sub-form first; otherwise pop if we were pushed (from Welcome), or
+  // fall back to /home (reached via go() at the end of onboarding — back = skip).
+  void _handleBack() {
+    if (_showEmail) {
+      setState(() => _showEmail = false);
+    } else if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Scaffold(
+    // Handle back ourselves: the screen can be reached via push (from Welcome —
+    // pop back) OR via go() at the end of onboarding (nothing to pop, so back
+    // would do nothing). Also collapse the email sub-form before leaving.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBack();
+      },
+      child: Scaffold(
       body: SafeArea(
         child: Stack(
           children: [
-            if (context.canPop())
-              Padding(
-                padding: const EdgeInsets.only(left: 4, top: 4),
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  onPressed: () => context.pop(),
-                ),
+            // Always present — even when reached via go() from onboarding, where
+            // there's nothing to pop, so the user isn't stranded without a back.
+            Padding(
+              padding: const EdgeInsets.only(left: 4, top: 4),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: _handleBack,
               ),
+            ),
             ListView(
               padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
               children: [
@@ -102,7 +135,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                 const SizedBox(height: 32),
                 if (!_showEmail) ...[
                   _AuthButton(
-                    icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                    icon: SvgPicture.asset('assets/brand/google_g.svg', width: 22, height: 22),
                     label: 'Continue with Google',
                     onTap: () => _soon('Google'),
                   ),
@@ -162,13 +195,14 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: TextButton(
-                  onPressed: () => context.go('/home'),
+                  onPressed: _enterApp,
                   child: Text('Skip for now', style: TextStyle(color: t.textMuted, fontWeight: FontWeight.w600)),
                 ),
               ),
             ),
           ],
         ),
+      ),
       ),
     );
   }

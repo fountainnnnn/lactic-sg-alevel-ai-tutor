@@ -17,19 +17,23 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   Billing _billing = Billing.monthly; // default to the smaller monthly price
   bool _busy = false;
 
-  /// Present the RevenueCat-hosted paywall (the offering is configured in the RC
-  /// dashboard). On a successful purchase/restore, pop back — `premiumProvider`
-  /// flips automatically from the customer-info listener.
-  Future<void> _openPaywall() async {
+  /// Buy the selected tier+billing directly from the current offering — this
+  /// screen IS the paywall, so there's no RC-hosted paywall step. On success,
+  /// `premiumProvider` flips automatically from the customer-info listener.
+  Future<void> _purchase() async {
+    final productId = _tier.plan(_billing).id;
     setState(() => _busy = true);
-    final entitled = await ref.read(purchasesServiceProvider).presentPaywall();
+    final res = await ref.read(purchasesServiceProvider).purchaseProduct(productId);
     await ref.read(customerInfoProvider.notifier).refresh();
     if (!mounted) return;
     setState(() => _busy = false);
-    if (entitled) {
+    if (res.ok) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('You\'re all set. Welcome!')));
       Navigator.of(context).maybePop();
+    } else if (!res.cancelled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Purchase could not be completed. Please try again.')));
     }
   }
 
@@ -68,13 +72,9 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               ),
               child: Column(
                 children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(color: scheme.primary, borderRadius: BorderRadius.circular(20)),
-                    child: Icon(Icons.workspace_premium_rounded, size: 34, color: scheme.onPrimary),
-                  ),
-                  const SizedBox(height: 16),
+                  Image.asset('assets/illustrations/premium.png',
+                      width: 132, height: 132, fit: BoxFit.contain),
+                  const SizedBox(height: 12),
                   Text('Choose your plan',
                       style: theme.textTheme.titleLarge?.copyWith(color: t.onPrimarySoft)),
                   const SizedBox(height: 6),
@@ -101,15 +101,19 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               ),
               if (tier.valueNote != null)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 7, 6, 0),
+                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.savings_outlined, size: 15, color: scheme.primary),
-                      const SizedBox(width: 6),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Icon(Icons.info_outline, size: 12, color: t.textMuted),
+                      ),
+                      const SizedBox(width: 5),
                       Expanded(
                         child: Text(tier.valueNote!,
                             style: TextStyle(
-                                color: scheme.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                                color: t.textMuted, fontSize: 10.5, fontWeight: FontWeight.w500, height: 1.3)),
                       ),
                     ],
                   ),
@@ -141,7 +145,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             ),
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: _busy ? null : _openPaywall,
+              onPressed: _busy ? null : _purchase,
               child: _busy
                   ? const SizedBox(
                       width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))

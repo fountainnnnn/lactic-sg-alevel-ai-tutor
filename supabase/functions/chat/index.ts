@@ -1,6 +1,6 @@
 // POST /functions/v1/chat — SSE streaming agentic chat.
 import { runAgent } from "../_shared/agent.ts";
-import { corsHeaders, dailyTokenCap, serviceClient, userClient } from "../_shared/db.ts";
+import { corsHeaders, dailyTokenCap, monthlyCostCap, serviceClient, userClient } from "../_shared/db.ts";
 import { invalidMessage, ownedPath } from "../_shared/guards.ts";
 
 interface Body {
@@ -12,6 +12,7 @@ interface Body {
   level_hint?: string;
   history?: { role: string; content: string }[]; // app-supplied recent turns
   answer_style?: "coach" | "direct";             // user toggle: guide me vs just answer
+  model_pref?: "standard" | "reasoning";         // Plus+ model toggle (Standard=Gemini, Reasoning=DeepSeek thinking)
 }
 
 Deno.serve(async (req) => {
@@ -81,7 +82,7 @@ Deno.serve(async (req) => {
     if (limErr) {
       console.error("usage_limits failed:", limErr);
     } else {
-      const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number; day_tokens: number };
+      const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number; day_tokens: number; user_month_cost: number; photo_day_ct: number };
       // 1) global budget circuit-breaker — protects the fixed monthly budget
       const budget = Number(Deno.env.get("MONTHLY_BUDGET_USD") ?? 40);
       const overflow = Deno.env.get("MODEL_OVERFLOW"); // free model slug, or unset
@@ -95,11 +96,46 @@ Deno.serve(async (req) => {
           }), { status: 503, headers: { ...corsHeaders, "content-type": "application/json" } });
         }
       }
+      // 1b) photo/vision gate — photo is a paid feature: Lite gets a taste
+      // (LITE_PHOTOS_PER_DAY/day), Plus+ unlimited. Enforced server-side because
+      // the client tier flag is spoofable. Runs BEFORE the OCR vision spend.
+      if (body.image_path) {
+        if (serverRank < 1) {
+          return new Response(JSON.stringify({
+            error: "photo_paid",
+            message: "Photo solve is a Lactic Lite feature. Subscribe to snap and solve questions.",
+          }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
+        }
+        if (serverRank === 1) {
+          const litePhotos = Number(Deno.env.get("LITE_PHOTOS_PER_DAY") ?? 2);
+          if (Number(l.photo_day_ct) >= litePhotos) {
+            return new Response(JSON.stringify({
+              error: "photo_limit",
+              message: `That's your ${litePhotos} photo solves for today. Upgrade to Plus for unlimited photo solve.`,
+            }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
+          }
+        }
+      }
       // 2) per-user limits (signed-in). The DAILY allowance is a TOKEN budget
       // (fair: a casual chat draws far less than a retrieval-heavy solve), sized
       // per tier in dailyTokenCap(). The per-minute COUNT stays as an anti-burst
       // throttle.
       if (userId) {
+        // 2a) per-user MONTHLY cost guardrail — a paying user can never out-cost
+        // their plan. Past the soft ceiling, degrade THIS user to the cheap model
+        // (still answers, just not on Gemini); past the hard ceiling, stop paid
+        // turns until the month resets. Both sit below the tier's net revenue.
+        const costCap = monthlyCostCap(serverRank);
+        if (costCap) {
+          const mtd = Number(l.user_month_cost);
+          if (mtd >= costCap.hard) {
+            return new Response(JSON.stringify({
+              error: "monthly_limit",
+              message: "You've used this month's allowance for your plan. It resets at the start of next month, see you then!",
+            }), { status: 429, headers: { ...corsHeaders, "content-type": "application/json" } });
+          }
+          if (mtd >= costCap.soft) degraded = true; // soft-land on the cheap model
+        }
         const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
         const capTok = dailyTokenCap(serverRank);
         if (l.minute_ct >= perMin || Number(l.day_tokens) >= capTok) {
@@ -149,11 +185,21 @@ Deno.serve(async (req) => {
     history = (data ?? []).reverse();
   }
 
-  // optional OCR pre-step — image_path must live under the caller's own prefix
+  // optional OCR pre-step — image_path must live under the caller's own prefix.
+  // OCR is a SEPARATE, differently-priced vision call (Gemini multimodal). Track
+  // its usage so it's folded into this turn's usage_log below — otherwise the
+  // photo cost is invisible and escapes the per-user cost cap, the daily token
+  // cap, and the global budget breaker.
   let ocrText: string | undefined;
+  const ocrUsage = { prompt_tokens: 0, completion_tokens: 0, cost: 0, calls: 0 };
   if (body.image_path) {
     try {
-      ocrText = await ocrImage(sb, ownedPath(body.image_path, userId));
+      ocrText = await ocrImage(sb, ownedPath(body.image_path, userId), (u) => {
+        ocrUsage.prompt_tokens += u.prompt_tokens;
+        ocrUsage.completion_tokens += u.completion_tokens;
+        ocrUsage.cost += u.cost;
+        ocrUsage.calls += 1;
+      });
     } catch (_) { /* non-fatal: a bad/foreign path just skips OCR */ }
   }
 
@@ -188,6 +234,8 @@ Deno.serve(async (req) => {
           ocr_text: ocrText,
           history,
           answer_style: body.answer_style,
+          // honour the model toggle only for paid (Plus+) users; free/Lite ignore it
+          model_pref: serverPremium ? body.model_pref : undefined,
           degraded,
           premium: serverPremium,
           // Memory is a signed-in benefit: anonymous turns build no memory delta.
@@ -198,6 +246,7 @@ Deno.serve(async (req) => {
           onCitations: (c) => send("citations", c),
           onMemoryDelta: (d) => send("memory_delta", d),
           onExamInsight: (i) => send("exam_insight", i),
+          onSuggestReasoning: (on) => send("suggest_reasoning", { on }),
           onTrace: (e) => trace.push(e),
         });
         send("done", { conversation_id: convId, model: result.model });
@@ -221,11 +270,14 @@ Deno.serve(async (req) => {
           await sb.from("usage_log").insert({
             user_id: userId, device_id: deviceId, ip: clientIp, conversation_id: convId,
             model: result.model, intent: result.intent,
-            llm_calls: result.usage.llm_calls,
-            prompt_tokens: result.usage.prompt_tokens,
-            completion_tokens: result.usage.completion_tokens,
-            cost_usd: result.usage.cost, latency_ms: Date.now() - t0,
+            // fold in the OCR vision call (if any) so its cost/tokens count
+            // toward the cost cap, daily token cap, and global budget
+            llm_calls: result.usage.llm_calls + ocrUsage.calls,
+            prompt_tokens: result.usage.prompt_tokens + ocrUsage.prompt_tokens,
+            completion_tokens: result.usage.completion_tokens + ocrUsage.completion_tokens,
+            cost_usd: result.usage.cost + ocrUsage.cost, latency_ms: Date.now() - t0,
             web_search: !!result.webSearch,
+            photo: !!body.image_path, // counts toward the per-user daily photo cap
           }).then(({ error }) => error && console.error("usage insert failed:", error));
         }
         ctrl.close();
@@ -238,7 +290,11 @@ Deno.serve(async (req) => {
   });
 });
 
-async function ocrImage(sb: ReturnType<typeof serviceClient>, path: string): Promise<string> {
+async function ocrImage(
+  sb: ReturnType<typeof serviceClient>,
+  path: string,
+  onUsage?: (u: { prompt_tokens: number; completion_tokens: number; cost: number }) => void,
+): Promise<string> {
   const { gen } = await import("../_shared/llm.ts");
   const { data, error } = await sb.storage.from("uploads").download(path);
   if (error || !data) throw new Error("download failed");
@@ -252,5 +308,6 @@ async function ocrImage(sb: ReturnType<typeof serviceClient>, path: string): Pro
     system: "Transcribe all text from this exam question image. Preserve layout. Render equations in LaTeX. Return only the transcription.",
     user: "Transcribe this image.",
     imageB64: { mime, data: b64 },
+    onUsage,
   });
 }

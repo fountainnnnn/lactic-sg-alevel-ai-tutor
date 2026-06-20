@@ -247,9 +247,11 @@ class _EmptyChat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    // Reserve space at the bottom for the floating free-model note + composer so
+    // the centered copy never sits behind them (the note overlaps otherwise).
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.fromLTRB(32, 32, 32, 210),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -335,9 +337,9 @@ class _FreeModelNote extends StatelessWidget {
                 child: Text.rich(TextSpan(
                   style: TextStyle(color: tokens.textMuted, fontSize: 12, height: 1.35),
                   children: [
-                    const TextSpan(text: 'Free tier model may be inaccurate at times. '),
+                    const TextSpan(text: 'The free tier model handles most topics well, but can be less reliable on math. '),
                     TextSpan(
-                      text: "Consider upgrading if you'd like more reliable answers.",
+                      text: 'Upgrade for steadier answers.',
                       style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700),
                     ),
                   ],
@@ -374,6 +376,13 @@ class _Composer extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Model picker — Plus+ only. Standard (Gemini) vs Reasoning (DeepSeek
+            // thinking, best for math/physics). Shown above the answer-style row.
+            if (ref.watch(hasSmarterModelProvider))
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 8),
+                child: _ModelToggle(tokens: tokens),
+              ),
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: 8),
               child: _StyleToggle(
@@ -451,7 +460,7 @@ class _Composer extends ConsumerWidget {
     final messenger = ScaffoldMessenger.of(context);
     if (!ref.read(canPhotoProvider)) {
       messenger.showSnackBar(SnackBar(
-        content: const Text('Photo upload is a Lactic Lite feature.'),
+        content: const Text('Photo solve is a Lactic Lite feature.'),
         action: SnackBarAction(label: 'Upgrade', onPressed: () => context.push('/premium')),
       ));
       return;
@@ -605,6 +614,76 @@ class _ChatHeader extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Plus+ model picker: Standard (Gemini) vs Reasoning (DeepSeek thinking). Shows
+/// a one-tap "better for math" nudge when the backend flags a math/physics turn
+/// while the student is still on Standard.
+class _ModelToggle extends ConsumerWidget {
+  final AppTokens tokens;
+  const _ModelToggle({required this.tokens});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value = ref.watch(settingsProvider.select((s) => s.modelPref));
+    final suggest = ref.watch(chatControllerProvider.select((s) => s.suggestReasoning));
+
+    void set(String key) {
+      ref.read(settingsProvider.notifier).setModelPref(key);
+      ref.read(chatControllerProvider.notifier).dismissReasoningSuggestion();
+    }
+
+    Widget seg(String key, String label) {
+      final on = value == key;
+      return GestureDetector(
+        onTap: () => set(key),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: on ? Theme.of(context).colorScheme.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: on ? Border.all(color: tokens.border) : null,
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: on ? tokens.onPrimarySoft : tokens.textMuted)),
+        ),
+      );
+    }
+
+    final scheme = Theme.of(context).colorScheme;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(color: tokens.surfaceMuted, borderRadius: BorderRadius.circular(999)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          seg('standard', 'Standard'),
+          seg('reasoning', 'Reasoning'),
+        ]),
+      ),
+      // Math/physics nudge — one tap switches to Reasoning. Only while on Standard.
+      if (suggest && value == 'standard') ...[
+        const SizedBox(width: 8),
+        Flexible(
+          child: GestureDetector(
+            onTap: () => set('reasoning'),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.auto_awesome_rounded, size: 13, color: scheme.primary),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text('Better for math, tap to switch',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: scheme.primary)),
+              ),
+            ]),
+          ),
+        ),
+      ],
+    ]);
   }
 }
 

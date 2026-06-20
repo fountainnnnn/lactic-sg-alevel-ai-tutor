@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/tokens.dart';
@@ -55,7 +56,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final t = context.tokens;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final email = Supabase.instance.client.auth.currentUser?.email;
+    final user = Supabase.instance.client.auth.currentUser;
+    final signedIn = user != null;
+    final email = user?.email;
     return Scaffold(
       appBar: AppBar(title: const Text('Edit Profile')),
       body: SafeArea(
@@ -74,30 +77,46 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ),
                   const SizedBox(height: 12),
                   TextButton(
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Custom photos are coming soon.'))),
+                    // Signed out: changing a photo needs an account, so route to
+                    // sign-in. Signed in: the feature is still pending.
+                    onPressed: () => signedIn
+                        ? ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Custom photos are coming soon.')))
+                        : context.push('/signin'),
                     child: const Text('Change photo'),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            const _Label('Name'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _name,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(hintText: 'Your name'),
-            ),
-            const SizedBox(height: 20),
-            const _Label('Email'),
-            const SizedBox(height: 8),
-            TextField(
-              readOnly: true,
-              decoration: InputDecoration(hintText: email ?? 'Sign in to set an email'),
-            ),
-            const SizedBox(height: 8),
-            Text('Email is tied to your sign-in method.', style: TextStyle(color: t.textMuted, fontSize: 12.5)),
+            // Name + email need an account. Signed out -> a single sign-in button
+            // in their place; signed in -> the editable name + (read-only) email.
+            if (signedIn) ...[
+              const _Label('Name'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _name,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(hintText: 'Your name'),
+              ),
+              const SizedBox(height: 20),
+              const _Label('Email'),
+              const SizedBox(height: 8),
+              TextField(
+                readOnly: true,
+                decoration: InputDecoration(hintText: email ?? 'Sign in to set an email'),
+              ),
+              const SizedBox(height: 8),
+              Text('Email is tied to your sign-in method.', style: TextStyle(color: t.textMuted, fontSize: 12.5)),
+            ] else ...[
+              FilledButton.icon(
+                onPressed: () => context.push('/signin'),
+                icon: const Icon(Icons.login_rounded),
+                label: const Text('Sign in'),
+              ),
+              const SizedBox(height: 8),
+              Text('Sign in to set your name and email.', style: TextStyle(color: t.textMuted, fontSize: 12.5)),
+            ],
             const SizedBox(height: 24),
             const _Label('Subjects & level'),
             const SizedBox(height: 10),

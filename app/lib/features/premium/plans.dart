@@ -83,7 +83,7 @@ class Subscriptions {
     key: 'lite',
     rank: 1,
     name: 'Lactic Lite',
-    tagline: 'More questions a day, same friendly tutor.',
+    tagline: 'More questions a day, plus a daily photo solve.',
     tokensPerDay: 490000, // free DeepSeek model, just a bigger token allowance (~1.6× Free)
     monthly: Plan(id: 'lactic_lite_monthly', billing: Billing.monthly, price: 'S\$7.90', period: '/month', wasPrice: 'S\$9.90'),
     annual: Plan(
@@ -96,10 +96,10 @@ class Subscriptions {
     key: 'plus',
     rank: 2,
     name: 'Lactic Plus',
-    tagline: 'Smarter model, photo solve, and Marks Coach.',
+    tagline: 'Reasoning model for math, photo solve, and Marks Coach.',
     tokensPerDay: 980000, // 2× Lite
     // True at S$13.90 vs ChatGPT Plus / Claude Pro (~S$28/mo incl. SG GST).
-    valueNote: 'Half the price of ChatGPT Plus or Claude Pro. Built for Singapore A-Levels.',
+    valueNote: 'Half the price of ChatGPT Plus or Claude Pro and built specifically for Singapore A-Levels.',
     monthly: Plan(id: 'lactic_plus_monthly', billing: Billing.monthly, price: 'S\$13.90', period: '/month', wasPrice: 'S\$16.90'),
     annual: Plan(
       id: 'lactic_plus_annual', billing: Billing.annual,
@@ -140,11 +140,12 @@ class Subscriptions {
   }
 
   /// Rank a feature needs. Used by the app to gate, and by the paywall list.
-  /// Lite (rank 1) is ONLY a higher daily limit — same free model, no photo.
-  /// The smarter model + photo start at Plus (rank 2).
+  /// Lite (rank 1) = higher daily limit + a photo-solve taste (2/day, enforced
+  /// server-side), still on the free model. The model choice (Standard/Reasoning)
+  /// starts at Plus (rank 2); Plus+ also gets unlimited photo.
   static const rankMoreUsage = 1; // Lite+ (just a bigger daily allowance)
-  static const rankSmarterModel = 2; // Plus+ (Gemini; Lite stays on the free model)
-  static const rankPhoto = 2; // Plus+
+  static const rankSmarterModel = 2; // Plus+ (model toggle: Standard Gemini / Reasoning DeepSeek-thinking; Lite stays on the free model)
+  static const rankPhoto = 1; // Lite+ (2/day on Lite, unlimited on Plus+)
   static const rankMarksCoach = 2; // Plus+
   static const rankMastery = 2; // Plus+
   static const rankDrilling = 3; // Max
@@ -153,8 +154,8 @@ class Subscriptions {
   static const features = <Feature>[
     Feature('Tutor answers', 'Chat-based help on your study questions.', 0),
     Feature('More daily questions', 'A higher daily limit so you can keep studying.', rankMoreUsage),
-    Feature('Smarter model', 'Faster, sharper answers from a more capable model.', rankSmarterModel),
-    Feature('Photo upload', 'Snap a printed question or your own working.', rankPhoto),
+    Feature('Model choice', 'A faster model for everyday questions, plus a Reasoning model that thinks step by step for math and physics.', rankSmarterModel),
+    Feature('Photo solve', 'Snap a printed question or your own working. 2 a day on Lite, unlimited on Plus.', rankPhoto),
     Feature('Marks Coach', 'Examiner-style feedback on your written answers.', rankMarksCoach),
     Feature('Mastery tracking', 'See your progress across every syllabus topic.', rankMastery),
     Feature('Weak-spot drilling', 'Targeted practice on what you keep getting wrong.', rankDrilling),
@@ -167,4 +168,23 @@ class Subscriptions {
     if (entitlements.contains(eLite)) return 1;
     return 0;
   }
+
+  /// Full display name for a tier rank (0 = free). e.g. 2 -> 'Lactic Plus'.
+  static String tierName(int rank) => switch (rank) {
+        1 => lite.name,
+        2 => plus.name,
+        3 => max.name,
+        _ => 'Free',
+      };
+
+  /// Short tier label for compact UI. e.g. 2 -> 'Plus'.
+  static String tierShort(int rank) => switch (rank) {
+        1 => 'Lite',
+        2 => 'Plus',
+        3 => 'Max',
+        _ => 'Free',
+      };
+
+  /// The next tier up from [rank], or null if already on Max (rank 3).
+  static Tier? nextTier(int rank) => rank < 3 ? tiers[rank] : null;
 }

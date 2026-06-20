@@ -87,6 +87,28 @@ export async function retrieveAnalyzedNotes(
     }));
 }
 
+/** Obsidian-brain graph expansion: given entry note ids (from vector retrieval),
+ * return their prereq + same_topic neighbours with composed content. `rel` tells
+ * the caller whether a neighbour is a prerequisite (for scaffolding) or related. */
+export async function expandNotes(
+  sb: SupabaseClient,
+  ids: string[],
+  rels: string[] = ["prereq", "same_topic"],
+  limit = 6,
+): Promise<(RetrievedChunk & { rel: string })[]> {
+  if (!ids.length) return [];
+  const { data, error } = await sb.rpc("expand_notes", {
+    p_ids: ids, p_rels: rels, p_limit: limit,
+  });
+  if (error) throw new Error(`expand_notes: ${error.message}`);
+  return (data as { note_id: string; title: string; content: string; kind: string; rel: string; w: number }[])
+    .map((r) => ({
+      chunk_id: r.note_id, document_id: r.note_id, content: r.content,
+      heading_path: null, score: r.rel === "prereq" ? 0.55 : 0.45,
+      hit_source: `an:${r.rel}`, an_title: r.title, rel: r.rel,
+    }));
+}
+
 /** Exact frontmatter lookup ("2024 RI Physics P1 Q5") — zero vectors. */
 export async function lookupDocument(
   sb: SupabaseClient,
@@ -169,6 +191,41 @@ export function dailyTokenCap(rank: number): number {
     : Number(Deno.env.get("FREE_TOKENS_PER_DAY") ?? 300000);
 }
 
+/** Per-user MONTHLY cost ceiling (USD), so a paying user can never cost more
+ * than they pay. Two thresholds: at `soft`, the costly answer model degrades to
+ * the cheap overflow model (they keep studying, just on the free model); at
+ * `hard`, further paid turns are blocked until the calendar month resets. Both
+ * sit below the tier's NET revenue (after the ~15% store cut, on the cheaper
+ * annual plan), so spend can never overtake the subscription. Free + Lite run on
+ * the cheap DeepSeek model already, so they have no ceiling here. Env-overridable.
+ * NOTE: degrade alone can't guarantee this — even on the cheap model the high
+ * daily token cap can out-cost the plan over a month — so `hard` is the real cap. */
+export function monthlyCostCap(rank: number): { soft: number; hard: number } | null {
+  if (rank >= 3) {
+    return {
+      soft: Number(Deno.env.get("MAX_MONTH_COST_SOFT_USD") ?? 8.5),
+      hard: Number(Deno.env.get("MAX_MONTH_COST_HARD_USD") ?? 12),
+    };
+  }
+  if (rank === 2) {
+    return {
+      soft: Number(Deno.env.get("PLUS_MONTH_COST_SOFT_USD") ?? 4),
+      hard: Number(Deno.env.get("PLUS_MONTH_COST_HARD_USD") ?? 6),
+    };
+  }
+  if (rank === 1) {
+    // Lite runs the cheap model already (so the soft "degrade" is a no-op — soft
+    // == hard, pure hard-stop). The cap matters because Lite's margin is thin and
+    // it now also incurs OCR/vision cost from its photo taste. $3.80 sits below
+    // Lite's net revenue even on the cheaper annual plan (~$4.14/mo).
+    return {
+      soft: Number(Deno.env.get("LITE_MONTH_COST_HARD_USD") ?? 3.8),
+      hard: Number(Deno.env.get("LITE_MONTH_COST_HARD_USD") ?? 3.8),
+    };
+  }
+  return null; // Free: no subscription to protect
+}
+
 /** Highest active subscription tier rank (0 free, 1 Lite, 2 Plus, 3 Max).
  * Stacked entitlements: Max grants lite+plus+max, Plus grants lite+plus. */
 export async function subscriptionRank(sb: SupabaseClient, userId: string | null): Promise<number> {
@@ -198,7 +255,7 @@ export async function enforceUsageLimits(
     console.error("usage_limits failed:", error);
     return null; // fail-open
   }
-  const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number; day_tokens: number };
+  const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number; day_tokens: number; user_month_cost: number; photo_day_ct: number };
 
   const budget = Number(Deno.env.get("MONTHLY_BUDGET_USD") ?? 40);
   if (Number(l.month_cost) >= budget) {
@@ -210,6 +267,16 @@ export async function enforceUsageLimits(
 
   if (o.userId) {
     const rank = await subscriptionRank(sb, o.userId);
+    // per-user monthly cost hard-stop: a paying user can never out-cost their
+    // plan. (These aux endpoints have no cheap-model fallback, so it's a hard
+    // stop only; the chat endpoint additionally soft-degrades before this.)
+    const costCap = monthlyCostCap(rank);
+    if (costCap && Number(l.user_month_cost) >= costCap.hard) {
+      return limitResponse(429, {
+        error: "monthly_limit",
+        message: "You've used this month's allowance for your plan. It resets at the start of next month.",
+      });
+    }
     const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
     // daily allowance is now a TOKEN budget, not a turn count
     const capTok = dailyTokenCap(rank);

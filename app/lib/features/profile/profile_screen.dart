@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/tokens.dart';
 import '../../state/app_state.dart';
+import '../premium/plans.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -31,6 +32,8 @@ class ProfileScreen extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final md = ref.watch(memoryStoreProvider).markdown;
     final usagePct = ref.watch(usageProvider).valueOrNull;
+    final rank = ref.watch(tierRankProvider);
+    final nextTier = Subscriptions.nextTier(rank);
 
     final profile = _section(md, 'Profile') ?? '';
     final name = RegExp(r'Name:\s*(.+)').firstMatch(profile)?.group(1)?.trim();
@@ -96,38 +99,75 @@ class ProfileScreen extends ConsumerWidget {
               _UsageCard(pct: usagePct),
             ],
 
-            const SizedBox(height: 22),
-            // Upgrade card
-            InkWell(
-              borderRadius: BorderRadius.circular(FF.rCard),
-              onTap: () => context.push('/premium'),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(FF.rCard)),
-                child: Row(children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(color: scheme.primary, borderRadius: BorderRadius.circular(18)),
-                    child: Icon(Icons.workspace_premium_rounded, color: scheme.onPrimary, size: 26),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Upgrade to Lactic Plus',
-                            style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700, fontSize: 16)),
-                        const SizedBox(height: 2),
-                        Text('Marks Coach, Mastery Tracking, Photo Upload',
-                            style: TextStyle(color: t.onPrimarySoft, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded, color: t.onPrimarySoft),
-                ]),
+            // Plan: current tier + next upgrade (or "top tier" on Max).
+            const _Label('Plan'),
+            Row(children: [
+              Text('Current plan', style: TextStyle(color: t.textMuted, fontSize: 13.5)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(999)),
+                child: Text(Subscriptions.tierName(rank),
+                    style: TextStyle(color: t.onPrimarySoft, fontWeight: FontWeight.w700, fontSize: 13.5)),
               ),
-            ),
+            ]),
+            const SizedBox(height: 12),
+            if (nextTier != null)
+              // Upsell to the next tier up.
+              InkWell(
+                borderRadius: BorderRadius.circular(FF.rCard),
+                onTap: () => context.push('/premium'),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(FF.rCard)),
+                  child: Row(children: [
+                    Image.asset('assets/illustrations/premium_badge.png',
+                        width: 56, height: 56, fit: BoxFit.contain),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Upgrade to ${nextTier.name}',
+                              style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700, fontSize: 16)),
+                          const SizedBox(height: 2),
+                          Text(nextTier.tagline,
+                              style: TextStyle(color: t.onPrimarySoft, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: t.onPrimarySoft),
+                  ]),
+                ),
+              )
+            else
+              // Max: top tier — no upsell, manage instead.
+              InkWell(
+                borderRadius: BorderRadius.circular(FF.rCard),
+                onTap: () => context.push('/premium'),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: t.primarySoft, borderRadius: BorderRadius.circular(FF.rCard)),
+                  child: Row(children: [
+                    Image.asset('assets/illustrations/premium_badge.png',
+                        width: 56, height: 56, fit: BoxFit.contain),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("You're on ${Subscriptions.max.name}",
+                              style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700, fontSize: 16)),
+                          const SizedBox(height: 2),
+                          Text('Every feature, with the most usage. Tap to manage.',
+                              style: TextStyle(color: t.onPrimarySoft, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: t.onPrimarySoft),
+                  ]),
+                ),
+              ),
 
             const SizedBox(height: 22),
             Row(children: [

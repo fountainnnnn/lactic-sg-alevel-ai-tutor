@@ -6,6 +6,7 @@ import '../../core/theme/tokens.dart';
 import '../../data/conversation_store.dart';
 import '../../state/app_state.dart';
 import '../../state/chat_controller.dart';
+import '../premium/plans.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -137,6 +138,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final struggle = _firstStruggle(md);
     final recents = ref.watch(conversationStoreProvider).list().take(3).toList();
     final streak = ref.watch(streakStoreProvider).current();
+    final rank = ref.watch(tierRankProvider);
+    final nextTier = Subscriptions.nextTier(rank);
 
     // Exam countdown (optional; hidden until an exam date is set).
     final examIso = prefs.getString('exam_date');
@@ -347,7 +350,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               Expanded(
                 child: GestureDetector(
                   onTap: () => context.push('/premium'),
-                  child: _Stat(label: 'Mastery', value: 'Plus', unit: 'Unlock', icon: Icons.lock_outline_rounded, t: t, muted: true),
+                  child: rank == 0
+                      // Free: the card is an upsell — show the locked state.
+                      ? _Stat(label: 'Plan', value: 'Free', unit: 'Upgrade', icon: Icons.lock_outline_rounded, t: t, muted: true)
+                      // Paid: show what they have; Max is the top tier, lower
+                      // tiers nudge the next upgrade.
+                      : _Stat(
+                          label: 'Plan',
+                          value: Subscriptions.tierShort(rank),
+                          unit: nextTier == null ? 'Top tier' : 'Upgrade to ${Subscriptions.tierShort(rank + 1)}',
+                          icon: Icons.workspace_premium_rounded,
+                          t: t,
+                          muted: nextTier != null,
+                        ),
                 ),
               ),
             ]),

@@ -8,3 +8,16 @@ verify_jwt = false
 
 [functions.search]
 verify_jwt = false
+
+# These do their OWN auth and must NOT require a Supabase JWT at the gateway:
+# the webhook authenticates RevenueCat via a shared secret (no Supabase JWT);
+# usage/delete-account validate the user's token inside the function. Without
+# these entries a deploy defaults verify_jwt=true and the gateway blocks them.
+[functions.revenuecat-webhook]
+verify_jwt = false
+
+[functions.usage]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = false

@@ -4,7 +4,7 @@
 
 import { gen, genStream, LlmUsage, Role, voyageEmbed } from "./llm.ts";
 import {
-  expandGraph, Filters, getDocuments, lookupDocument, RetrievedChunk, retrieveAnalyzedNotes, retrieveContext,
+  expandGraph, expandNotes, Filters, getDocuments, lookupDocument, RetrievedChunk, retrieveAnalyzedNotes, retrieveContext,
 } from "./db.ts";
 import { MemoryDelta, memoryBrief, ParsedMemory, parseMemory } from "./memory.ts";
 import { loadPrompt } from "./prompts.ts";
@@ -18,6 +18,7 @@ export interface ChatInput {
   ocr_text?: string;
   history?: { role: string; content: string }[];
   answer_style?: "coach" | "direct"; // user toggle: guide me vs just answer
+  model_pref?: "standard" | "reasoning"; // Plus+ model toggle: Standard (Gemini) vs Reasoning (DeepSeek thinking). Ignored for free/Lite.
   degraded?: boolean; // monthly budget hit -> route generation to the free overflow model
   premium?: boolean; // paid tier -> Gemini answers; free tier -> cheaper DeepSeek
   persist_memory?: boolean; // signed-in only: build the memory delta. Anon -> skip (no memory).
@@ -55,6 +56,7 @@ export interface AgentEvents {
   onCitations: (c: Citation[]) => void;
   onMemoryDelta: (d: MemoryDelta) => void;
   onExamInsight?: (i: ExamInsightPayload) => void;
+  onSuggestReasoning?: (on: boolean) => void; // nudge a Plus+ Standard user toward Reasoning on math/physics turns
   onTrace?: (entry: string) => void;
 }
 
@@ -114,6 +116,14 @@ const INSIGHT_SYS =
   `tricks: the single most useful technique or tip to score. ` +
   `Each value is one sentence, <= 30 words, concrete and specific to the topic. Plain text, no markdown, no preamble.`;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Generous output cap on the prose answer. A demanding multi-part exam answer
+// measures ~1.1k completion tokens, so 4000 leaves wide headroom: legitimate
+// multi-section answers (explanation + working + misconception + check) are
+// never truncated, while a runaway generation can't bill an unbounded tail.
+// Only the answer is capped; the bounded JSON aux calls stay uncapped because
+// a truncated JSON object would just force a costly re-request.
+const ANSWER_MAX_TOKENS = Number(Deno.env.get("ANSWER_MAX_TOKENS") ?? 4000);
 
 // Product rule: no em/en dashes anywhere the student sees. Models emit them
 // constantly despite prompt instructions, so strip at the output boundary too.
@@ -245,7 +255,7 @@ export async function runAgent(
     // web results are untrusted input too — risk-gate on the ORIGINAL question
     const webRisky = SECURITY_RISK.test(priorQ);
     let answer = "";
-    for await (const t of genStream({ system: sys, user: userMsg, role: "deep", web: true, onUsage: tally })) {
+    for await (const t of genStream({ system: sys, user: userMsg, role: "deep", web: true, onUsage: tally, maxTokens: ANSWER_MAX_TOKENS })) {
       answer += t;
       if (!webRisky) ev.onToken(t);
     }
@@ -374,6 +384,16 @@ export async function runAgent(
   const filters: Filters = {
     subject: deriveSubject(input.subject_hint, classify.suggested_subject, input.level_hint),
   };
+
+  // Nudge a Plus+ student on the default Standard model toward Reasoning when the
+  // question is math or physics (calculation-heavy, where DeepSeek thinking shines).
+  // Chem/Bio/GP are recall/explanation-led and answer well on Standard, so no nudge.
+  if (
+    input.premium && input.model_pref !== "reasoning" && classify.intent !== "meta_chat" &&
+    /math|physics/i.test(classify.suggested_subject ?? filters.subject ?? "")
+  ) {
+    ev.onSuggestReasoning?.(true);
+  }
 
   // 4a. structured short-circuit: "2024 RI Physics P1 Q5" is a frontmatter
   //     lookup, not a vector search — exact paper requests must hit exactly
@@ -508,6 +528,38 @@ export async function runAgent(
     }
   }
 
+  // 6b. Obsidian-brain expansion: follow note_edges from the analyzed-note hits.
+  //     same_topic neighbours add related grounding; prereq neighbours let the
+  //     tutor scaffold ("make sure you're solid on X first") — the unique thing
+  //     vector search can't surface. Capped to keep the prompt lean.
+  let prereqDirective = "";
+  if (!isMeta) {
+    const noteIds = top.filter((c) => c.hit_source?.startsWith("an:")).map((c) => c.document_id);
+    if (noteIds.length) {
+      try {
+        const neighbours = await expandNotes(sb, noteIds.slice(0, 6), ["prereq", "same_topic"], 6);
+        // add a couple of related notes to the context pool for breadth
+        for (const r of neighbours.filter((n) => n.rel === "same_topic").slice(0, 2)) {
+          if (!top.some((c) => c.document_id === r.document_id)) top.push(r);
+        }
+        // surface prereq titles so the tutor can check the foundation
+        const prereqTitles = [
+          ...new Set(neighbours.filter((n) => n.rel === "prereq").map((p) => p.an_title).filter(Boolean)),
+        ].slice(0, 4);
+        if (prereqTitles.length) {
+          prereqDirective =
+            `PREREQUISITES this topic builds on (from the syllabus): ${prereqTitles.join(", ")}. ` +
+            "Use these to CHECK THE FOUNDATION: if your explanation leans on one, name it in a " +
+            "single short line so the student can confirm they're solid on it first. Pick the most " +
+            "relevant one or two, never list them all, and skip this if the student clearly already has them.\n\n";
+        }
+        trace(`note_expand: prereqs=${prereqTitles.length}`);
+      } catch (e) {
+        trace(`note_expand failed: ${e}`);
+      }
+    }
+  }
+
   // 6a. EXAM INSIGHT — only for content questions. Summarize how the topic is
   //     examined: rough frequency + a couple of practice references. This is a
   //     guidance layer, NOT explanation material.
@@ -608,12 +660,23 @@ export async function runAgent(
   //    reasoning (plan.depth == "deep": why/prove/derive/step-by-step/long). No
   //    pro escalation.
   const role: Role = plan.depth === "deep" ? "deep" : "fast";
-  // Tier routing: paid -> Gemini (role-based flash-lite/flash, or overflow when
-  // degraded); free -> cheaper DeepSeek for every answer. Internal steps
-  // (classify/rerank/memory) stay on MODEL_FAST for everyone.
-  const answerModel = input.premium
+  // Tier + model-choice routing for the ANSWER call. Order matters:
+  //   1. degraded (budget / per-user cost cap) -> forced cheap overflow model.
+  //   2. Plus+ who picked "Reasoning" -> DeepSeek with thinking on (best at math,
+  //      and cheaper than Gemini, so it never threatens the cost guarantee).
+  //   3. Plus+ on "Standard" (default) -> Gemini via role (flash-lite / flash).
+  //   4. Free / Lite -> cheaper DeepSeek, no thinking.
+  // Internal steps (classify/rerank/memory) stay on MODEL_FAST for everyone.
+  const wantsReasoning = !!input.premium && input.model_pref === "reasoning" && !input.degraded;
+  const reasoningModel = Deno.env.get("MODEL_REASONING") ?? Deno.env.get("MODEL_FREE") ?? "deepseek/deepseek-v3.2";
+  const answerModel = input.degraded
     ? overflowModel
+    : wantsReasoning
+    ? reasoningModel
+    : input.premium
+    ? undefined // role-based Gemini (MODEL_FAST / MODEL_DEEP)
     : (Deno.env.get("MODEL_FREE") ?? "deepseek/deepseek-v3.2");
+  if (wantsReasoning) trace("model_pref=reasoning -> DeepSeek thinking");
   // deterministic prompt selection: exam-answer mode uses a dedicated system
   // prompt with NO soft-pedagogy defaults, so nothing leaks (greetings,
   // "does that make sense?", analogies). The base tutor handles everything else.
@@ -647,6 +710,7 @@ export async function runAgent(
   const userMsg =
     styleDirective +
     modeDirective +
+    prereqDirective +
     `STUDENT MEMORY:\n${brief}\n\n` +
     (historyBlock ? `RECENT CONVERSATION:\n${historyBlock}\n\n` : "") +
     `PEDAGOGY PLAN:\n${JSON.stringify(plan)}\n\n` +
@@ -664,7 +728,7 @@ export async function runAgent(
   const risky = SECURITY_RISK.test(query);
   trace(`security_gate=${risky}`);
   let answer = "";
-  for await (const t of genStream({ system: sys, user: userMsg, role, onUsage: tally, model: answerModel })) {
+  for await (const t of genStream({ system: sys, user: userMsg, role, onUsage: tally, model: answerModel, maxTokens: ANSWER_MAX_TOKENS, reasoning: wantsReasoning })) {
     answer += t;
     if (!risky) ev.onToken(noDash(t));
   }
@@ -711,7 +775,7 @@ export async function runAgent(
   }
 
   return {
-    answer, citations, model: input.degraded ? "overflow" : (input.premium ? role : "free"),
+    answer, citations, model: input.degraded ? "overflow" : wantsReasoning ? "reasoning" : (input.premium ? role : "free"),
     intent: classify.intent, usage, deltaPromise,
   };
 }

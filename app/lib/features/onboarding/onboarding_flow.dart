@@ -18,6 +18,7 @@ class OnboardingFlow extends ConsumerStatefulWidget {
 
 class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   final _pc = PageController();
+  final _liveTasteKey = GlobalKey<LiveTasteStepState>();
   int _page = 0;
 
   @override
@@ -31,8 +32,13 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   void _prev() =>
       _pc.previousPage(duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
 
-  // Top-left back: step back within the flow, or leave onboarding from step 1.
+  // Top-left back: on the live-taste step (page 1), first let it collapse a
+  // shown demo answer back to the 3-question list; otherwise step back within
+  // the flow, or leave onboarding from step 1.
   void _back() {
+    if (_page == 1 && (_liveTasteKey.currentState?.handleBack() ?? false)) {
+      return;
+    }
     if (_page == 0) {
       context.canPop() ? context.pop() : context.go('/welcome');
     } else {
@@ -76,7 +82,7 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                 onPageChanged: (i) => setState(() => _page = i),
                 children: [
                   SubjectsStep(onNext: _next),
-                  LiveTasteStep(onNext: _next),
+                  LiveTasteStep(key: _liveTasteKey, onNext: _next),
                   const TrustStep(),
                 ],
               ),

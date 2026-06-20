@@ -69,6 +69,7 @@ Deno.serve(async (req) => {
       prompt_tokens: usage?.prompt_tokens ?? 0,
       completion_tokens: usage?.completion_tokens ?? 0,
       cost_usd: usage?.cost ?? 0, latency_ms: Date.now() - t0,
+      photo: true, // counts toward the per-user daily photo cap, same as inline chat OCR
     }).then(({ error: e }) => e && console.error("ocr usage insert failed:", e));
   }
 });

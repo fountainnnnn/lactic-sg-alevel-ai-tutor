@@ -79,6 +79,13 @@ class ExamInsightEvent extends ChatEvent {
   const ExamInsightEvent(this.insight);
 }
 
+/// Backend hint that this turn is math/physics and a Plus+ user on the Standard
+/// model would likely get a better answer from Lactic Reasoning.
+class SuggestReasoningEvent extends ChatEvent {
+  final bool on;
+  const SuggestReasoningEvent(this.on);
+}
+
 class DoneEvent extends ChatEvent {
   final String? conversationId;
   final String? model;

@@ -132,6 +132,18 @@ def main() -> int:
             fails += 1
             print(f"batch @{i} skipped: {str(e)[:160]}", flush=True)
     print(f"done. {fails} batch(es) skipped.")
+
+    # Moving forward: build the obsidian-brain graph edges for the notes just
+    # added (incremental — only recent rows). same_topic + syllabus-grounded
+    # prereq; no LLM. A periodic full rebuild (python -m ingest.build_note_edges)
+    # also backfills reverse edges from existing notes to the new ones.
+    if todo:
+        try:
+            from .build_note_edges import run as build_note_edges
+            print("building note_edges for newly uploaded notes...")
+            build_note_edges(since_hours=6)
+        except Exception as e:
+            print(f"note_edges build skipped: {str(e)[:160]}", flush=True)
     return 0
 
 

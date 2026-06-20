@@ -29,10 +29,13 @@ function json(body: unknown, status = 200): Response {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
 
-  // Shared-secret auth. Fail closed only when the secret is configured, so the
-  // endpoint can be smoke-tested before the dashboard is wired.
+  // Shared-secret auth, FAIL CLOSED: reject if the secret is unset OR mismatched.
+  // (Previously failed open when unset — that let anyone POST a fake purchase and
+  // grant any account any tier. Never weaken this.) Set REVENUECAT_WEBHOOK_SECRET
+  // here AND paste the same value into the RevenueCat dashboard webhook's
+  // Authorization header.
   const secret = Deno.env.get("REVENUECAT_WEBHOOK_SECRET");
-  if (secret && req.headers.get("Authorization") !== secret) {
+  if (!secret || req.headers.get("Authorization") !== secret) {
     return new Response("unauthorized", { status: 401 });
   }
 

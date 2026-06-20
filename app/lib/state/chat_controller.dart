@@ -13,16 +13,18 @@ class ChatState {
   final LimitException? limit; // non-null -> show 429/503 state
   final String? subject; // e.g. "Chemistry" (appbar title)
   final String? topic; // conversation title (appbar subtitle)
+  final bool suggestReasoning; // backend nudge: this math/physics turn suits Lactic Reasoning
 
-  const ChatState({this.messages = const [], this.sending = false, this.limit, this.subject, this.topic});
+  const ChatState({this.messages = const [], this.sending = false, this.limit, this.subject, this.topic, this.suggestReasoning = false});
 
-  ChatState copyWith({List<ChatMessage>? messages, bool? sending, LimitException? limit, String? subject, String? topic}) =>
+  ChatState copyWith({List<ChatMessage>? messages, bool? sending, LimitException? limit, String? subject, String? topic, bool? suggestReasoning}) =>
       ChatState(
         messages: messages ?? this.messages,
         sending: sending ?? this.sending,
         limit: limit,
         subject: subject ?? this.subject,
         topic: topic ?? this.topic,
+        suggestReasoning: suggestReasoning ?? this.suggestReasoning,
       );
 }
 
@@ -59,7 +61,9 @@ class ChatController extends StateNotifier<ChatState> {
     );
 
     final memory = ref.read(memoryStoreProvider);
-    final answerStyle = ref.read(settingsProvider).answerStyle;
+    final settings = ref.read(settingsProvider);
+    final answerStyle = settings.answerStyle;
+    final modelPref = settings.modelPref;
     final deviceId = ref.read(deviceIdProvider);
     final premium = ref.read(premiumProvider);
 
@@ -76,6 +80,7 @@ class ChatController extends StateNotifier<ChatState> {
       limit: null,
       subject: _current!.subject,
       topic: _current!.title,
+      suggestReasoning: false, // clear any stale nudge from the previous turn
     );
 
     void bump() => state = state.copyWith(messages: [...state.messages]);
@@ -86,6 +91,7 @@ class ChatController extends StateNotifier<ChatState> {
             memoryMd: memory.markdown,
             history: history,
             answerStyle: answerStyle,
+            modelPref: modelPref,
             subjectHint: subjectHint,
             levelHint: levelHint,
             deviceId: deviceId,
@@ -106,6 +112,8 @@ class ChatController extends StateNotifier<ChatState> {
           case ExamInsightEvent(:final insight):
             assistant.examInsight = insight;
             bump();
+          case SuggestReasoningEvent(:final on):
+            state = state.copyWith(suggestReasoning: on);
           case MemoryDeltaEvent(:final delta):
             await memory.applyDelta(delta);
           case DoneEvent():
@@ -146,6 +154,11 @@ class ChatController extends StateNotifier<ChatState> {
   void reset() {
     _current = null;
     state = const ChatState();
+  }
+
+  /// Clear the "try Reasoning" nudge (user acted on it or switched models).
+  void dismissReasoningSuggestion() {
+    if (state.suggestReasoning) state = state.copyWith(suggestReasoning: false);
   }
 
   /// Insert a verbose, in-thread note when the answer style changes mid-chat.

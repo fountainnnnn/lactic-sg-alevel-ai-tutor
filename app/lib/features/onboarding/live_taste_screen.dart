@@ -17,12 +17,26 @@ class LiveTasteStep extends ConsumerStatefulWidget {
   final VoidCallback onNext;
   const LiveTasteStep({super.key, required this.onNext});
   @override
-  ConsumerState<LiveTasteStep> createState() => _LiveTasteStepState();
+  ConsumerState<LiveTasteStep> createState() => LiveTasteStepState();
 }
 
-class _LiveTasteStepState extends ConsumerState<LiveTasteStep> {
+class LiveTasteStepState extends ConsumerState<LiveTasteStep> {
   (String, String, String)? _picked;
   bool _thinking = false;
+
+  /// Called by the onboarding flow's back button. If a demo answer is showing,
+  /// step back to the 3-question list instead of the previous onboarding step.
+  /// Returns true when it consumed the back (so the flow shouldn't also go back).
+  bool handleBack() {
+    if (_picked != null) {
+      setState(() {
+        _picked = null;
+        _thinking = false;
+      });
+      return true;
+    }
+    return false;
+  }
 
   List<(String, String, String)> _demos() {
     // Match the student's onboarding picks (tags like "H2 Chemistry") to a

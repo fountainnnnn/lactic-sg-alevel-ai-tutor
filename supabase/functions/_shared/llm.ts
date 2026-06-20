@@ -43,6 +43,8 @@ interface GenOpts {
   web?: boolean; // enable OpenRouter web-search plugin (gated behind user consent)
   onUsage?: (u: LlmUsage) => void; // per-call token/cost accounting
   model?: string; // explicit slug override (e.g. free overflow model when budget-degraded)
+  maxTokens?: number; // cap on completion length; only set on prose answers, never on JSON calls (truncated JSON forces a re-request)
+  reasoning?: boolean; // enable the model's thinking mode (DeepSeek V3.2 etc.); reasoning streams in a separate field, so answer text stays clean
 }
 
 function reportUsage(o: GenOpts, u: unknown) {
@@ -89,6 +91,8 @@ export async function gen<T = string>(o: GenOpts, retries = 3): Promise<T> {
     // same question gets different routing on different days
     temperature: o.json ? 0 : 0.3,
     usage: { include: true },
+    ...(o.maxTokens ? { max_tokens: o.maxTokens } : {}),
+    ...(o.reasoning ? { reasoning: { enabled: true } } : {}),
     ...(o.json ? { response_format: { type: "json_object" } } : {}),
   };
   let lastErr = "";
@@ -151,6 +155,8 @@ export async function* genStream(o: GenOpts): AsyncGenerator<string> {
           body: JSON.stringify({
             model, messages: buildMessages(o), temperature: 0.3, stream: true,
             usage: { include: true }, // usage arrives on the final SSE chunk
+            ...(o.maxTokens ? { max_tokens: o.maxTokens } : {}),
+            ...(o.reasoning ? { reasoning: { enabled: true } } : {}),
             // web plugin: OpenRouter runs the search and injects cited results.
             // Only ever set when the student has explicitly consented this turn.
             ...(o.web ? { plugins: [{ id: "web", max_results: 5 }] } : {}),

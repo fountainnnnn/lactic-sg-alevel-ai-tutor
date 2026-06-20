@@ -5,20 +5,31 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../state/app_state.dart';
 import '../shared/illustration.dart';
+import 'plans.dart';
 
 /// Subscribed-state design (matches the Figma). Renewal data is placeholder
 /// until in-app purchases are wired; this screen reads real billing data then.
 class ManageSubscriptionScreen extends ConsumerWidget {
   const ManageSubscriptionScreen({super.key});
 
-  static const _renewDate = '17 Jul 2026';
-  static const _price = 'S\$12.90';
+  static const _renewDate = '17 Jul 2026'; // placeholder until real store billing data is wired
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    // Tier name + price reflect the actual active subscription; renewal date is
+    // still a placeholder until real store billing data is read from RevenueCat.
+    final rank = ref.watch(tierRankProvider);
+    final tier = switch (rank) {
+      3 => Subscriptions.max,
+      2 => Subscriptions.plus,
+      1 => Subscriptions.lite,
+      _ => null,
+    };
+    final tierName = tier?.name ?? 'Lactic Free';
+    final price = tier?.monthly.price ?? '—';
     return Scaffold(
       appBar: AppBar(title: const Text('Subscription')),
       body: SafeArea(
@@ -35,9 +46,9 @@ class ManageSubscriptionScreen extends ConsumerWidget {
                   Text('CURRENT PLAN',
                       style: TextStyle(color: t.onPrimarySoft, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
                   const SizedBox(height: 8),
-                  Text('Lactic Plus', style: theme.textTheme.titleLarge?.copyWith(color: scheme.primary)),
+                  Text(tierName, style: theme.textTheme.titleLarge?.copyWith(color: scheme.primary)),
                   const SizedBox(height: 4),
-                  Text('Renews $_renewDate at $_price', style: TextStyle(color: t.onPrimarySoft.withValues(alpha: 0.85))),
+                  Text('Renews $_renewDate at $price', style: TextStyle(color: t.onPrimarySoft.withValues(alpha: 0.85))),
                 ],
               ),
             ),
@@ -49,9 +60,9 @@ class ManageSubscriptionScreen extends ConsumerWidget {
                 border: Border.all(color: t.border),
               ),
               child: Column(children: [
-                const _DetailRow('Plan', 'Lactic Plus · Monthly'),
+                _DetailRow('Plan', '$tierName · Monthly'),
                 _Divider(t),
-                const _DetailRow('Amount', '$_price / month'),
+                _DetailRow('Amount', '$price / month'),
                 _Divider(t),
                 const _DetailRow('Next renewal', _renewDate),
               ]),
@@ -99,13 +110,28 @@ class _Divider extends StatelessWidget {
   Widget build(BuildContext context) => Divider(height: 1, color: t.border);
 }
 
-class SubscriptionSuccessScreen extends StatelessWidget {
+class SubscriptionSuccessScreen extends ConsumerWidget {
   const SubscriptionSuccessScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
     final theme = Theme.of(context);
+    // Tailor the welcome to the tier actually purchased, so we never promise a
+    // higher tier's feature (e.g. Weak-Spot Drilling is Max-only).
+    final rank = ref.watch(tierRankProvider);
+    final tierName = switch (rank) {
+      3 => 'Lactic Max',
+      2 => 'Lactic Plus',
+      1 => 'Lactic Lite',
+      _ => 'Lactic',
+    };
+    final perks = switch (rank) {
+      3 => 'You now have the Reasoning model for math, Marks Coach, Mastery Tracking, Weak-Spot Drilling, Photo Upload, and the most daily questions.',
+      2 => 'You now have the Reasoning model for math, Marks Coach, Mastery Tracking, and Photo Upload.',
+      1 => 'You now have a higher daily question limit to keep studying.',
+      _ => 'Your upgrade is ready.',
+    };
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -115,9 +141,9 @@ class SubscriptionSuccessScreen extends StatelessWidget {
               const Spacer(flex: 3),
               const Illustration('success', size: 200),
               const Spacer(flex: 1),
-              Text('Welcome to Lactic Plus!', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
+              Text('Welcome to $tierName!', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
               const SizedBox(height: 10),
-              Text('You now have access to Marks Coach, Mastery Tracking, Weak-Spot Drilling, and Photo Upload. Good luck with your A-Levels.',
+              Text('$perks Good luck with your A-Levels.',
                   textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, height: 1.55)),
               const SizedBox(height: 28),
               SizedBox(

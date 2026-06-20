@@ -72,7 +72,10 @@ final _routerProvider = Provider<GoRouter>((ref) {
       final done = ref.read(onboardingDoneProvider);
       const onboardingPaths = {'/welcome', '/onboarding'};
       final onboarding = onboardingPaths.contains(state.matchedLocation);
-      if (!done && !onboarding) return '/welcome';
+      // Sign-in is reachable before onboarding is done ("I already have an
+      // account" on the welcome screen) — don't bounce it back to /welcome.
+      final preAuth = onboarding || state.matchedLocation == '/signin';
+      if (!done && !preAuth) return '/welcome';
       if (done && onboarding) return '/home';
       return null;
     },

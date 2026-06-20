@@ -80,6 +80,35 @@ class PurchasesService {
     }
   }
 
+  /// Purchase a specific store product (by its product id, e.g.
+  /// `lactic_plus_monthly`) directly from the current offering — no RC-hosted
+  /// paywall. Our own [PremiumScreen] is the paywall; this buys the selected
+  /// tier+billing. Returns ([ok], [cancelled]): [ok] true if the purchase
+  /// completed (entitlements update via the customer-info listener); [cancelled]
+  /// true if the user backed out (so the UI can stay silent rather than error).
+  Future<({bool ok, bool cancelled})> purchaseProduct(String productId) async {
+    if (!_configured) return (ok: false, cancelled: false);
+    try {
+      final offerings = await Purchases.getOfferings();
+      final offering = offerings.current;
+      if (offering == null) return (ok: false, cancelled: false);
+      Package? pkg;
+      for (final p in offering.availablePackages) {
+        if (p.storeProduct.identifier == productId) {
+          pkg = p;
+          break;
+        }
+      }
+      if (pkg == null) return (ok: false, cancelled: false);
+      await Purchases.purchase(PurchaseParams.package(pkg));
+      return (ok: true, cancelled: false);
+    } on PlatformException catch (e) {
+      final cancelled = PurchasesErrorHelper.getErrorCode(e) ==
+          PurchasesErrorCode.purchaseCancelledError;
+      return (ok: false, cancelled: cancelled);
+    }
+  }
+
   /// Show the paywall ONLY if the user lacks [entitlement] — ideal for gating a
   /// premium action inline (returns true if they already had it or just bought).
   Future<bool> presentPaywallIfNeeded(String entitlement) async {

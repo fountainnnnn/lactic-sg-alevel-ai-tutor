@@ -112,10 +112,11 @@ final tierRankProvider = Provider<int>((ref) {
 
 /// Any paid tier (Lite or above). Used for "is subscribed" checks (restore) and
 /// the advisory flag sent to the backend. NOTE: Lite is paid but stays on the
-/// free model — use [hasSmarterModelProvider] for the Gemini gate.
+/// free model — use [hasSmarterModelProvider] for the model-choice gate.
 final premiumProvider = Provider<bool>((ref) => ref.watch(tierRankProvider) >= 1);
 
-/// Tiers that get the smarter Gemini model (Plus+). Free and Lite run DeepSeek.
+/// Tiers that get the model toggle — Standard (Gemini) / Reasoning (DeepSeek
+/// thinking), Plus+. Free and Lite run DeepSeek only, no toggle.
 final hasSmarterModelProvider =
     Provider<bool>((ref) => ref.watch(tierRankProvider) >= Subscriptions.rankSmarterModel);
 
@@ -156,11 +157,17 @@ final canDrillingProvider =
 class Settings {
   final ThemeMode themeMode;
   final String answerStyle; // 'coach' | 'direct'
-  const Settings({this.themeMode = ThemeMode.system, this.answerStyle = 'direct'});
+  final String modelPref; // 'standard' (Gemini) | 'reasoning' (DeepSeek thinking). Plus+ only.
+  const Settings({
+    this.themeMode = ThemeMode.system,
+    this.answerStyle = 'direct',
+    this.modelPref = 'standard',
+  });
 
-  Settings copyWith({ThemeMode? themeMode, String? answerStyle}) => Settings(
+  Settings copyWith({ThemeMode? themeMode, String? answerStyle, String? modelPref}) => Settings(
         themeMode: themeMode ?? this.themeMode,
         answerStyle: answerStyle ?? this.answerStyle,
+        modelPref: modelPref ?? this.modelPref,
       );
 }
 
@@ -170,6 +177,7 @@ class SettingsNotifier extends StateNotifier<Settings> {
       : super(Settings(
           themeMode: _modeFrom(_prefs.getString('theme_mode')),
           answerStyle: _prefs.getString('answer_style') ?? 'direct',
+          modelPref: _prefs.getString('model_pref') ?? 'standard',
         ));
 
   static ThemeMode _modeFrom(String? s) => switch (s) {
@@ -187,6 +195,11 @@ class SettingsNotifier extends StateNotifier<Settings> {
   void setAnswerStyle(String s) {
     state = state.copyWith(answerStyle: s);
     _prefs.setString('answer_style', s);
+  }
+
+  void setModelPref(String s) {
+    state = state.copyWith(modelPref: s);
+    _prefs.setString('model_pref', s);
   }
 }
 

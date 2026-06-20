@@ -18,6 +18,7 @@ class ChatService {
     required String memoryMd,
     List<Map<String, String>> history = const [],
     String? answerStyle, // 'coach' | 'direct'
+    String? modelPref, // 'standard' | 'reasoning' (Plus+ only; backend ignores it otherwise)
     String? subjectHint,
     String? levelHint,
     String? deviceId,
@@ -42,6 +43,7 @@ class ChatService {
       'history': history,
       if (imagePath != null) 'image_path': imagePath,
       if (answerStyle != null) 'answer_style': answerStyle,
+      if (modelPref != null) 'model_pref': modelPref,
       if (subjectHint != null) 'subject_hint': subjectHint,
       if (levelHint != null) 'level_hint': levelHint,
       'premium': premium,
@@ -116,6 +118,8 @@ class ChatService {
         return MemoryDeltaEvent(j);
       case 'exam_insight':
         return ExamInsightEvent(ExamInsight.fromJson(j));
+      case 'suggest_reasoning':
+        return SuggestReasoningEvent((j['on'] ?? false) == true);
       case 'done':
         return DoneEvent(
             conversationId: j['conversation_id']?.toString(), model: j['model']?.toString());
