@@ -1,6 +1,6 @@
 // POST /functions/v1/chat — SSE streaming agentic chat.
 import { runAgent } from "../_shared/agent.ts";
-import { corsHeaders, serviceClient, userClient } from "../_shared/db.ts";
+import { corsHeaders, dailyTokenCap, serviceClient, userClient } from "../_shared/db.ts";
 import { invalidMessage, ownedPath } from "../_shared/guards.ts";
 
 interface Body {
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
     if (limErr) {
       console.error("usage_limits failed:", limErr);
     } else {
-      const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number };
+      const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number; day_tokens: number };
       // 1) global budget circuit-breaker — protects the fixed monthly budget
       const budget = Number(Deno.env.get("MONTHLY_BUDGET_USD") ?? 40);
       const overflow = Deno.env.get("MODEL_OVERFLOW"); // free model slug, or unset
@@ -95,20 +95,15 @@ Deno.serve(async (req) => {
           }), { status: 503, headers: { ...corsHeaders, "content-type": "application/json" } });
         }
       }
-      // 2) per-user rate limits (signed-in), per tier. Daily caps are sized to a
-      // monthly usage budget (~break-even even if maxed every day):
-      // free ~$2 -> 30, Lite ~$6 -> 40, Plus ~$11 -> 75, Max ~$17 -> 115.
+      // 2) per-user limits (signed-in). The DAILY allowance is a TOKEN budget
+      // (fair: a casual chat draws far less than a retrieval-heavy solve), sized
+      // per tier in dailyTokenCap(). The per-minute COUNT stays as an anti-burst
+      // throttle.
       if (userId) {
         const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
-        const perDay = serverRank >= 3
-          ? Number(Deno.env.get("MAX_TURNS_PER_DAY") ?? 115)
-          : serverRank === 2
-          ? Number(Deno.env.get("PLUS_TURNS_PER_DAY") ?? 75)
-          : serverRank === 1
-          ? Number(Deno.env.get("LITE_TURNS_PER_DAY") ?? 50)
-          : Number(Deno.env.get("FREE_TURNS_PER_DAY") ?? 30);
-        if (l.minute_ct >= perMin || l.day_ct >= perDay) {
-          const daily = l.day_ct >= perDay;
+        const capTok = dailyTokenCap(serverRank);
+        if (l.minute_ct >= perMin || Number(l.day_tokens) >= capTok) {
+          const daily = Number(l.day_tokens) >= capTok;
           return new Response(JSON.stringify({
             error: "rate_limited",
             message: daily

@@ -26,6 +26,9 @@ app/dist/
 .DS_Store
 _test_jwt.txt
 
+# supabase CLI working state
+supabase/.temp/
+
 # ad-hoc dev scratch — not project content
 *.err
 ab_test.mjs

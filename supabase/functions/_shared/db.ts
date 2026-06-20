@@ -153,6 +153,22 @@ export function clientIpFrom(req: Request): string | null {
     (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
 }
 
+/** Per-tier DAILY token allowance (prompt+completion over the rolling 24h).
+ * Sized from real usage (~7.5k tokens/turn): Free ≈40 turns, Lite ≈65, Plus ≈130,
+ * Max ≈325 turns-equivalent. Ladder: Lite ≈1.6× Free, Plus = 2× Lite, Max = 5×
+ * Lite. Token-based so a casual chat draws far less than a retrieval-heavy solve.
+ * Env-overridable. NOTE: keep in sync with the client mirror in plans.dart, which
+ * derives the "×N vs previous tier" labels on the paywall. */
+export function dailyTokenCap(rank: number): number {
+  return rank >= 3
+    ? Number(Deno.env.get("MAX_TOKENS_PER_DAY") ?? 2450000)
+    : rank === 2
+    ? Number(Deno.env.get("PLUS_TOKENS_PER_DAY") ?? 980000)
+    : rank === 1
+    ? Number(Deno.env.get("LITE_TOKENS_PER_DAY") ?? 490000)
+    : Number(Deno.env.get("FREE_TOKENS_PER_DAY") ?? 300000);
+}
+
 /** Highest active subscription tier rank (0 free, 1 Lite, 2 Plus, 3 Max).
  * Stacked entitlements: Max grants lite+plus+max, Plus grants lite+plus. */
 export async function subscriptionRank(sb: SupabaseClient, userId: string | null): Promise<number> {
@@ -182,7 +198,7 @@ export async function enforceUsageLimits(
     console.error("usage_limits failed:", error);
     return null; // fail-open
   }
-  const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number };
+  const l = lim as { minute_ct: number; day_ct: number; month_cost: number; device_day_ct: number; ip_day_ct: number; day_tokens: number };
 
   const budget = Number(Deno.env.get("MONTHLY_BUDGET_USD") ?? 40);
   if (Number(l.month_cost) >= budget) {
@@ -195,15 +211,10 @@ export async function enforceUsageLimits(
   if (o.userId) {
     const rank = await subscriptionRank(sb, o.userId);
     const perMin = Number(Deno.env.get("TURNS_PER_MINUTE") ?? 8);
-    const perDay = rank >= 3
-      ? Number(Deno.env.get("MAX_TURNS_PER_DAY") ?? 115)
-      : rank === 2
-      ? Number(Deno.env.get("PLUS_TURNS_PER_DAY") ?? 75)
-      : rank === 1
-      ? Number(Deno.env.get("LITE_TURNS_PER_DAY") ?? 50)
-      : Number(Deno.env.get("FREE_TURNS_PER_DAY") ?? 30);
-    if (l.minute_ct >= perMin || l.day_ct >= perDay) {
-      const daily = l.day_ct >= perDay;
+    // daily allowance is now a TOKEN budget, not a turn count
+    const capTok = dailyTokenCap(rank);
+    if (l.minute_ct >= perMin || Number(l.day_tokens) >= capTok) {
+      const daily = Number(l.day_tokens) >= capTok;
       return limitResponse(429, {
         error: "rate_limited",
         message: daily
