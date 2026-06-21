@@ -34,8 +34,56 @@ class LacticApp extends ConsumerWidget {
       darkTheme: AppTheme.dark(),
       themeMode: settings.themeMode,
       routerConfig: router,
+      // Intercept Android back so it returns to the Home tab from a secondary
+      // tab instead of exiting the app. Built inside the router's builder so its
+      // observer registers after go_router's and is therefore called first.
+      builder: (context, child) => _BackInterceptor(router: router, child: child!),
     );
   }
+}
+
+/// Returns to the Home tab when Android back is pressed on a secondary tab,
+/// rather than letting the app exit. Pushed routes (e.g. /settings) and the Home
+/// tab fall through to go_router's normal handling (pop / exit).
+class _BackInterceptor extends StatefulWidget {
+  final GoRouter router;
+  final Widget child;
+  const _BackInterceptor({required this.router, required this.child});
+
+  @override
+  State<_BackInterceptor> createState() => _BackInterceptorState();
+}
+
+class _BackInterceptorState extends State<_BackInterceptor> with WidgetsBindingObserver {
+  static const _tabRoots = {'/chat', '/history', '/profile'};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Future<bool> didPopRoute() async {
+    // A pushed route (e.g. /settings) is on top — let go_router pop it normally.
+    if (widget.router.canPop()) return false;
+    // At a tab root: a secondary tab returns to Home; Home falls through to exit.
+    final location = widget.router.routerDelegate.currentConfiguration.uri.path;
+    if (_tabRoots.contains(location)) {
+      widget.router.go('/home');
+      return true; // handled — don't exit the app
+    }
+    return false; // Home root — let the app exit
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Horizontal slide for the onboarding flow: each step swipes in from the right
