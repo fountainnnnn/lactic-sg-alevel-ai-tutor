@@ -63,7 +63,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: StatefulBuilder(
-            builder: (ctx, setSheet) => Padding(
+            builder: (ctx, setSheet) => SingleChildScrollView(
+              child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -118,6 +119,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ]),
                 ],
               ),
+            ),
             ),
           ),
         );
