@@ -36,3 +36,10 @@ test_preflight.mjs
 smoke_*.mjs
 drop_list.txt
 figma_shots/
+
+# on-device test artifacts (screenshots, UI dumps, build logs) — repo root only
+/*.png
+/build_log.txt
+/LoopTest.java
+/ui*.xml
+/u.xml
