@@ -32,6 +32,21 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   }
 
   Future<void> _submit() async {
+    final email = _email.text.trim();
+    final password = _password.text;
+    // Validate client-side first: catches the common mistakes (empty/malformed
+    // fields) with a friendly message instead of firing a pointless network
+    // call and surfacing a raw backend error.
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      setState(() => _error = 'Enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setState(() => _error = _creating
+          ? 'Password must be at least 6 characters.'
+          : 'Enter your password.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -39,9 +54,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     final auth = Supabase.instance.client.auth;
     try {
       if (_creating) {
-        await auth.signUp(email: _email.text.trim(), password: _password.text);
+        await auth.signUp(email: email, password: password);
       } else {
-        await auth.signInWithPassword(email: _email.text.trim(), password: _password.text);
+        await auth.signInWithPassword(email: email, password: password);
       }
       if (mounted && auth.currentSession != null) {
         _enterApp();
