@@ -90,7 +90,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 18),
             Center(
-              child: Text('Lactic · v1.0.0',
+              child: Text('Lactic · v0.1.0',
                   style: TextStyle(color: context.tokens.textMuted, fontSize: 12, fontWeight: FontWeight.w600)),
             ),
           ],
