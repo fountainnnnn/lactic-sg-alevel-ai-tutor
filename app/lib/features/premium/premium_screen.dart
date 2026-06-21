@@ -58,7 +58,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     final scheme = theme.colorScheme;
     final plan = _tier.plan(_billing);
     return Scaffold(
-      appBar: AppBar(title: const Text('Go Premium'), centerTitle: true),
+      appBar: AppBar(title: const Text('Go premium'), centerTitle: true),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),

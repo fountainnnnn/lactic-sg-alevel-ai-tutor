@@ -32,7 +32,7 @@ Got dependencies!
 Try `flutter pub outdated` for more information.
 Running Gradle task 'assembleDebug'...                          
 flutter.bat : Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=D:\gradletmp -Djdk.net.unixdomain.tmpdir=D:\gradletmp
-At line:1 char:184
+At line:1 char:305
 + ... gradletmp'; & D:\flutter\bin\flutter.bat build apk --debug 2>&1 | Out ...
 +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (Picked up JAVA_...ir=D:\gradletmp:String) [], RemoteException
@@ -54,5 +54,5 @@ platform(s) did not match the target platform.
 Configured platforms: web
 Target platform: android
 
-Running Gradle task 'assembleDebug'...                             21.0s
+Running Gradle task 'assembleDebug'...                             20.9s
 √ Built build\app\outputs\flutter-apk\app-debug.apk
