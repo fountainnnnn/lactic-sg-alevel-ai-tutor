@@ -186,22 +186,27 @@ class _BillingToggle extends StatelessWidget {
               color: on ? scheme.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(label,
-                    style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: on ? scheme.onPrimary : tokens.textMuted)),
-                if (badge != null) ...[
-                  const SizedBox(width: 6),
-                  Text(badge,
+            // scaleDown so the label + "2 months free" badge never overflow the
+            // segment at large system font scales (they scale to fit instead).
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label,
                       style: TextStyle(
-                          fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          color: on ? scheme.onPrimary.withValues(alpha: 0.85) : scheme.primary)),
+                          color: on ? scheme.onPrimary : tokens.textMuted)),
+                  if (badge != null) ...[
+                    const SizedBox(width: 6),
+                    Text(badge,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: on ? scheme.onPrimary.withValues(alpha: 0.85) : scheme.primary)),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
