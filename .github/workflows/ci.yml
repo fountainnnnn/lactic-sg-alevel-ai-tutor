@@ -19,7 +19,9 @@ jobs:
       - name: deno check
         run: deno check supabase/functions/*/index.ts
       - name: deno test
-        run: deno test supabase/functions/tests/
+        # --allow-env: dailyTokenCap() in _shared/db.ts reads optional
+        # *_TOKENS_PER_DAY overrides via Deno.env.get (falls back to defaults).
+        run: deno test --allow-env supabase/functions/tests/
 
   flutter:
     name: Flutter app
