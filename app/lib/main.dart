@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -13,6 +14,11 @@ import 'state/app_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Phone-first study app: lock to portrait. The screens (fixed-height
+  // illustrations, onboarding steps, bottom sheets) are designed for portrait
+  // and overflow in landscape; locking avoids that whole class of layout bugs.
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   await Supabase.initialize(
     url: Config.supabaseUrl,
