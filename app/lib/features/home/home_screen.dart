@@ -56,6 +56,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final hadDate = prefs.getString('exam_date') != null;
     await showModalBottomSheet(
       context: context,
+      // Use the ROOT navigator so the sheet (and its scrim) cover the whole
+      // screen including the shell's bottom nav bar. Without this the sheet is
+      // confined to the Home page's inner navigator — it renders behind the
+      // opaque nav bar (looking empty) and only dims the page, not the nav.
+      useRootNavigator: true,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (ctx) {
@@ -106,13 +111,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     if (hadDate) ...[
                       const SizedBox(width: 12),
-                      OutlinedButton(
-                        onPressed: () async {
-                          await prefs.remove('exam_date');
-                          await prefs.remove('exam_label');
-                          if (ctx.mounted) Navigator.of(ctx).pop();
-                        },
-                        child: const Text('Remove'),
+                      // Must be a flex child (Expanded): a bare Material button as
+                      // a non-flex child gets measured with unbounded width and
+                      // throws "BoxConstraints forces an infinite width", which
+                      // collapsed the whole sheet.
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            await prefs.remove('exam_date');
+                            await prefs.remove('exam_label');
+                            if (ctx.mounted) Navigator.of(ctx).pop();
+                          },
+                          child: const Text('Remove'),
+                        ),
                       ),
                     ],
                   ]),
