@@ -248,23 +248,33 @@ class _EmptyChat extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     // Reserve space at the bottom for the floating free-model note + composer so
-    // the centered copy never sits behind them (the note overlaps otherwise).
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 32, 32, 210),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Illustration('empty_chats', size: 150),
-            const SizedBox(height: 12),
-            Text('Ask me anything', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              'Explain a concept, mark your working, or find a practice question. Grounded in real Singapore A-Level material and the SEAB syllabus.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: t.textMuted, height: 1.5),
+    // the centered copy never sits behind them. Scrollable + min-height so it
+    // centers when there's room but never overflows on short screens or when the
+    // keyboard is open (which shrinks the available height).
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(32, 32, 32, 210),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Illustration('empty_chats', size: 150),
+                  const SizedBox(height: 12),
+                  Text('Ask me anything', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Explain a concept, mark your working, or find a practice question. Grounded in real Singapore A-Level material and the SEAB syllabus.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: t.textMuted, height: 1.5),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
