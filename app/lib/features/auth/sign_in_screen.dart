@@ -143,9 +143,13 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text('Welcome back', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
+                Text(_creating ? 'Create your account' : 'Welcome back',
+                    textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
                 const SizedBox(height: 8),
-                Text('Sign in to save your progress and pick up where you left off.',
+                Text(
+                    _creating
+                        ? 'Save your progress and sync across devices.'
+                        : 'Sign in to save your progress and pick up where you left off.',
                     textAlign: TextAlign.center, style: TextStyle(color: t.textMuted, height: 1.5)),
                 const SizedBox(height: 32),
                 if (!_showEmail) ...[
