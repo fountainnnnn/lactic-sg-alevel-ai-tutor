@@ -246,6 +246,66 @@ class _TierCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // At large system font sizes the side-by-side price column eats half the
+    // card and crushes the feature text to one word per line. Past ~1.5x, stack
+    // the price below the details instead so both stay readable.
+    final stacked = MediaQuery.textScalerOf(context).scale(16) > 24;
+
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(tier.name,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+        const SizedBox(height: 2),
+        Text(Subscriptions.usageMultiplier(tier),
+            style: TextStyle(color: scheme.primary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 1),
+        Text(tier.tagline, style: TextStyle(color: tokens.textMuted, fontSize: 12.5)),
+        if (plan.note != null) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: scheme.primary,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(plan.note!,
+                style: TextStyle(
+                    color: scheme.onPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ],
+    );
+
+    final price = Column(
+      crossAxisAlignment: stacked ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (plan.wasPrice != null)
+          Text(plan.wasPrice!,
+              style: TextStyle(
+                  color: tokens.textMuted,
+                  fontSize: 12.5,
+                  decoration: TextDecoration.lineThrough,
+                  decorationColor: tokens.textMuted)),
+        Text.rich(TextSpan(children: [
+          TextSpan(
+            text: plan.price,
+            style: TextStyle(
+                fontWeight: FontWeight.w800, fontSize: 20, color: scheme.primary),
+          ),
+          TextSpan(text: plan.period, style: TextStyle(color: tokens.textMuted, fontSize: 13)),
+        ])),
+        if (plan.wasPrice != null)
+          Text('Launch price',
+              style: TextStyle(
+                  color: scheme.primary, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
+      ],
+    );
+
     return Material(
       color: selected ? tokens.primarySoft : scheme.surface,
       borderRadius: BorderRadius.circular(16),
@@ -262,6 +322,7 @@ class _TierCard extends StatelessWidget {
             ),
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
                 selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
@@ -270,60 +331,18 @@ class _TierCard extends StatelessWidget {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(tier.name,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                    const SizedBox(height: 2),
-                    Text(Subscriptions.usageMultiplier(tier),
-                        style: TextStyle(color: scheme.primary, fontSize: 12.5, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 1),
-                    Text(tier.tagline, style: TextStyle(color: tokens.textMuted, fontSize: 12.5)),
-                    if (plan.note != null) ...[
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(plan.note!,
-                            style: TextStyle(
-                                color: scheme.onPrimary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700)),
-                      ),
-                    ],
-                  ],
-                ),
+                child: stacked
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [info, const SizedBox(height: 12), price],
+                      )
+                    : info,
               ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (plan.wasPrice != null)
-                    Text(plan.wasPrice!,
-                        style: TextStyle(
-                            color: tokens.textMuted,
-                            fontSize: 12.5,
-                            decoration: TextDecoration.lineThrough,
-                            decorationColor: tokens.textMuted)),
-                  Text.rich(TextSpan(children: [
-                    TextSpan(
-                      text: plan.price,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 20, color: scheme.primary),
-                    ),
-                    TextSpan(text: plan.period, style: TextStyle(color: tokens.textMuted, fontSize: 13)),
-                  ])),
-                  if (plan.wasPrice != null)
-                    Text('Launch price',
-                        style: TextStyle(
-                            color: scheme.primary, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
-                ],
-              ),
+              if (!stacked) ...[
+                const SizedBox(width: 10),
+                price,
+              ],
             ],
           ),
         ),
