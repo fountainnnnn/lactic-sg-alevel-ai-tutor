@@ -51,90 +51,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _editExam() async {
     final prefs = ref.read(prefsProvider);
-    final labelCtrl = TextEditingController(text: prefs.getString('exam_label') ?? '');
-    DateTime? date = DateTime.tryParse(prefs.getString('exam_date') ?? '');
-    final hadDate = prefs.getString('exam_date') != null;
-    await showModalBottomSheet(
+    await showModalBottomSheet<void>(
       context: context,
-      // Use the ROOT navigator so the sheet (and its scrim) cover the whole
-      // screen including the shell's bottom nav bar. Without this the sheet is
-      // confined to the Home page's inner navigator — it renders behind the
-      // opaque nav bar (looking empty) and only dims the page, not the nav.
+      // Root navigator so the sheet + scrim cover the whole screen including the
+      // shell's bottom nav bar (otherwise it renders behind the opaque nav bar).
       useRootNavigator: true,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (ctx) {
-        final t = ctx.tokens;
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: StatefulBuilder(
-            builder: (ctx, setSheet) => Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Exam countdown', style: Theme.of(ctx).textTheme.titleLarge),
-                  const SizedBox(height: 4),
-                  Text('Track the days to your next big paper.', style: TextStyle(color: t.textMuted)),
-                  const SizedBox(height: 16),
-                  TextField(controller: labelCtrl, decoration: const InputDecoration(hintText: 'e.g. H2 Chemistry Prelim')),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.calendar_today_rounded, size: 18),
-                    label: Text(date == null ? 'Pick a date' : _fmt(date!)),
-                    onPressed: () async {
-                      final now = DateTime.now();
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: date ?? now.add(const Duration(days: 30)),
-                        firstDate: now,
-                        lastDate: now.add(const Duration(days: 365 * 3)),
-                      );
-                      if (picked != null) setSheet(() => date = picked);
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: date == null
-                            ? null
-                            : () async {
-                                await prefs.setString('exam_date', date!.toIso8601String());
-                                final label = labelCtrl.text.trim();
-                                await prefs.setString('exam_label', label.isEmpty ? 'A-Levels' : label);
-                                if (ctx.mounted) Navigator.of(ctx).pop();
-                              },
-                        child: const Text('Save'),
-                      ),
-                    ),
-                    if (hadDate) ...[
-                      const SizedBox(width: 12),
-                      // Must be a flex child (Expanded): a bare Material button as
-                      // a non-flex child gets measured with unbounded width and
-                      // throws "BoxConstraints forces an infinite width", which
-                      // collapsed the whole sheet.
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () async {
-                            await prefs.remove('exam_date');
-                            await prefs.remove('exam_label');
-                            if (ctx.mounted) Navigator.of(ctx).pop();
-                          },
-                          child: const Text('Remove'),
-                        ),
-                      ),
-                    ],
-                  ]),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (ctx) => _ExamSheet(
+        initialLabel: prefs.getString('exam_label') ?? '',
+        initialDate: DateTime.tryParse(prefs.getString('exam_date') ?? ''),
+        hadDate: prefs.getString('exam_date') != null,
+        fmt: _fmt,
+        onSave: (label, date) async {
+          await prefs.setString('exam_date', date.toIso8601String());
+          await prefs.setString('exam_label', label.isEmpty ? 'A-Levels' : label);
+        },
+        onRemove: () async {
+          await prefs.remove('exam_date');
+          await prefs.remove('exam_label');
+        },
+      ),
     );
-    labelCtrl.dispose();
     if (mounted) setState(() {});
   }
 
@@ -501,6 +439,114 @@ class _Stat extends StatelessWidget {
           else
             Text(unit, style: TextStyle(color: t.textMuted, fontSize: 12.5)),
         ],
+      ),
+    );
+  }
+}
+
+/// Exam-countdown bottom-sheet content. A StatefulWidget so it OWNS its
+/// TextEditingController and disposes it from its own dispose() — disposing the
+/// controller from the caller right after the sheet closes races the dismiss
+/// animation and crashes ("ChangeNotifier used after being disposed").
+class _ExamSheet extends StatefulWidget {
+  final String initialLabel;
+  final DateTime? initialDate;
+  final bool hadDate;
+  final String Function(DateTime) fmt;
+  final Future<void> Function(String label, DateTime date) onSave;
+  final Future<void> Function() onRemove;
+  const _ExamSheet({
+    required this.initialLabel,
+    required this.initialDate,
+    required this.hadDate,
+    required this.fmt,
+    required this.onSave,
+    required this.onRemove,
+  });
+
+  @override
+  State<_ExamSheet> createState() => _ExamSheetState();
+}
+
+class _ExamSheetState extends State<_ExamSheet> {
+  late final TextEditingController _label;
+  DateTime? _date;
+
+  @override
+  void initState() {
+    super.initState();
+    _label = TextEditingController(text: widget.initialLabel);
+    _date = widget.initialDate;
+  }
+
+  @override
+  void dispose() {
+    _label.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Exam countdown', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('Track the days to your next big paper.', style: TextStyle(color: t.textMuted)),
+            const SizedBox(height: 16),
+            TextField(controller: _label, decoration: const InputDecoration(hintText: 'e.g. H2 Chemistry Prelim')),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_today_rounded, size: 18),
+              label: Text(_date == null ? 'Pick a date' : widget.fmt(_date!)),
+              onPressed: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _date ?? now.add(const Duration(days: 30)),
+                  firstDate: now,
+                  lastDate: now.add(const Duration(days: 365 * 3)),
+                );
+                if (picked != null) setState(() => _date = picked);
+              },
+            ),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(
+                child: FilledButton(
+                  onPressed: _date == null
+                      ? null
+                      : () async {
+                          await widget.onSave(_label.text.trim(), _date!);
+                          if (context.mounted) Navigator.of(context).pop();
+                        },
+                  child: const Text('Save'),
+                ),
+              ),
+              // Remove must be a flex child (Expanded): a bare Material button as a
+              // non-flex Row child is measured with unbounded width and throws
+              // "BoxConstraints forces an infinite width", collapsing the sheet.
+              if (widget.hadDate) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      await widget.onRemove();
+                      if (context.mounted) Navigator.of(context).pop();
+                    },
+                    child: const Text('Remove'),
+                  ),
+                ),
+              ],
+            ]),
+          ],
+        ),
       ),
     );
   }
