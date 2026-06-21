@@ -428,8 +428,14 @@ class _Stat extends StatelessWidget {
           Row(children: [
             Icon(icon, size: 18, color: muted ? t.textMuted : scheme.primary),
             const SizedBox(width: 6),
-            Text(label.toUpperCase(),
-                style: TextStyle(color: t.textMuted, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+            // Flexible + ellipsis so the label can't overflow the card at large
+            // system font scales (e.g. "DAY STREAK" at 2x accessibility text).
+            Flexible(
+              child: Text(label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: t.textMuted, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+            ),
           ]),
           const SizedBox(height: 10),
           Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
