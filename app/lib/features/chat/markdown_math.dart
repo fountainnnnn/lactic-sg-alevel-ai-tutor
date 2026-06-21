@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 
 /// Renders an answer as Markdown with LaTeX math. Uses gpt_markdown so inline
@@ -25,6 +26,25 @@ class MathMarkdown extends StatelessWidget {
     var s = data.replaceAll(_cite, '');
     s = s.replaceAllMapped(_block, (m) => '\\[${m[1]!.trim()}\\]');
     s = s.replaceAllMapped(_inline, (m) => '\\(${m[1]!.trim()}\\)');
-    return GptMarkdown(s.trim(), style: style);
+    return GptMarkdown(s.trim(), style: style, latexBuilder: _latex);
+  }
+
+  /// Render LaTeX ourselves so wide *block* equations scroll horizontally
+  /// instead of overflowing the chat bubble (which happens with long lines or
+  /// at large system font sizes). Inline math flows with the text as before.
+  Widget _latex(BuildContext context, String tex, TextStyle textStyle, bool inline) {
+    final math = Math.tex(
+      tex,
+      textStyle: textStyle,
+      mathStyle: inline ? MathStyle.text : MathStyle.display,
+      textScaleFactor: 1,
+      settings: const TexParserSettings(strict: Strict.ignore),
+      onErrorFallback: (err) => Text(tex, style: textStyle),
+    );
+    if (inline) return math;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: math,
+    );
   }
 }
