@@ -6,10 +6,10 @@
 # files >100MB that GitHub rejects — re-downloadable via the ingest scripts.
 corpus/
 
-# vault/index is a regenerable build cache (chunks.jsonl is 294MB, over GitHub's
-# 100MB limit) + ingest logs — rebuilt by the ingest pipeline. vault/notes and
-# vault/graph (the actual derived knowledge) ARE committed.
-vault/index/
+# vault/ and grail_*.json are derived from licensed exam material and are kept
+# private; the ingest pipeline rebuilds them from a corpus you have rights to.
+vault/
+grail_*.json
 
 # build / cache / machine-specific junk (regenerable, not project content)
 __pycache__/

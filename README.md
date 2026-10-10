@@ -1,5 +1,7 @@
 # Lactic — A-Level Study Agent (Backend)
 
+> **About this repo:** this is the open-source code for Lactic, an AI study app for Singapore A-Level students. The content it learns from (the exam-paper corpus, the generated `vault/` notes and the `grail_*.json` manifests) comes from licensed material and is **not included**. The full commit history is kept, with that content removed from every commit. Point the ingest pipeline at material you have the rights to and it rebuilds the vault.
+
 RAG study **agent** for Singapore JC students. Graph-structured retrieval vault +
 deterministic agent harness + per-user on-device memory. Single-vendor LLM stack
 (Gemini 2.5 Flash) + Voyage embeddings. See the approved plan for full design.
