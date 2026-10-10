@@ -1,4 +1,4 @@
-project_id = "jcai"
+project_id = "lactic"
 
 [functions.chat]
 verify_jwt = false
