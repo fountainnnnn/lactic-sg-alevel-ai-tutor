@@ -36,6 +36,20 @@ single-vendor rate ceiling). Model slugs are env-configurable — see `.env.exam
 Default stack: DeepSeek V4 Flash (fast), DeepSeek R1 (deep), Kimi K2 (escalation),
 Qwen2.5-VL (OCR). Embeddings stay on Voyage (1 call/turn, limits are a non-issue).
 
+## Running the app against your own backend
+
+The app has no backend baked in. Point it at your own Supabase project at build time:
+
+```bash
+cd app
+flutter run \
+  --dart-define=SUPABASE_URL=https://<your-project>.supabase.co \
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_... \
+  --dart-define=REVENUECAT_TEST_KEY=test_...
+```
+
+Before shipping, make sure your RLS policies keep `documents`, `chunks` and `edges` readable only by the service role (the edge functions read them server-side), since the publishable key ends up inside every copy of the app.
+
 ## Runbook (order matters)
 
 ```bash

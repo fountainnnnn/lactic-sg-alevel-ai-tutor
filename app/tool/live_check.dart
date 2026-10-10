@@ -1,10 +1,11 @@
-// Verifies the app's SSE path against the LIVE backend. Run: dart run tool/live_check.dart
+// Verifies the app's SSE path against a live backend.
+// Run: SUPABASE_URL=https://<project>.supabase.co SUPABASE_PUBLISHABLE_KEY=sb_publishable_... dart run tool/live_check.dart
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 
-const _url = 'https://your-project-ref.supabase.co/functions/v1/chat';
-const _key = 'sb_publishable_REDACTED';
+final _url = '${Platform.environment['SUPABASE_URL']}/functions/v1/chat';
+final _key = Platform.environment['SUPABASE_PUBLISHABLE_KEY'] ?? '';
 
 Future<void> main() async {
   final req = http.Request('POST', Uri.parse(_url));
